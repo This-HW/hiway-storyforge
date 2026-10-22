@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hiway-storyforge</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>hiway-storyforge — 스토리 제작기</h1>
+  <span id="provider-badge" class="badge">provider: ?</span>
+  <nav>
+    <button data-tab="make" class="tab active">제작</button>
+    <button data-tab="board" class="tab">보드·배치</button>
+    <button data-tab="sourcing" class="tab">소싱</button>
+    <button data-tab="analytics" class="tab">성과</button>
+    <button data-tab="settings" class="tab">설정</button>
+  </nav>
+</header>
+
+<main>
+  <!-- 제작 -->
+  <div id="tab-make">
+    <section>
+      <h2>1. 소재 등록</h2>
+      <input type="file" id="file" accept="image/*">
+      <input type="text" id="source" placeholder="출처 URL (필수)">
+      <select id="topic"></select>
+      <select id="rights">
+        <option>불명확</option><option>확인됨</option><option>사용불가</option>
+      </select>
+      <button id="btn-register">등록</button>
+      <p class="hint">출처와 권리 상태를 모르면 등록할 수 없게 설계돼 있습니다 (검수 원칙).</p>
+    </section>
+    <section>
+      <h2>소재 목록</h2>
+      <div id="materials"></div>
+    </section>
+    <section id="workbench" hidden>
+      <h2>2. 작업대 — <span id="wb-title"></span></h2>
+      <img id="wb-image" alt="소재 이미지">
+      <div class="row">
+        <button id="btn-analyze">분석 (핵심 사실 후보)</button>
+        <span id="fact-candidates"></span>
+      </div>
+      <div class="row">
+        <input type="text" id="fact" placeholder="핵심 사실 1개 (확정)">
+        <button id="btn-fact">사실 확정</button>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="humor"> 유머 한 스푼</label>
+        <button id="btn-copies">카피 후보 생성 (승인 패턴 참고)</button>
+      </div>
+      <div id="copies"></div>
+      <div class="row">
+        <input type="text" id="chosen" placeholder="확정 카피 (후보 클릭 또는 직접 입력)">
+        <input type="text" id="highlight" placeholder="강조 단어 (선택)">
+        <button id="btn-choose">카피 확정</button>
+        <button id="btn-render">합성</button>
+        <button id="btn-loc-all">전 언어 현지화</button>
+      </div>
+      <div class="row" id="loc-buttons"></div>
+      <div id="renders"></div>
+      <h3>2.5 스토리 캐러셀 (FR-12, 선택)</h3>
+      <p class="hint">슬라이드마다 빈 줄로 구분해 입력하세요. 첫 슬라이드는 확정 카피와 같아야 합니다 (후킹). 각 슬라이드의 마지막에 <code>&gt; 이미지 프롬프트</code> 줄을 넣으면 그 장면을 AI로 생성합니다. 설정 후 이미지 생성 → 합성을 누르면 슬라이드가 렌더링됩니다.</p>
+      <textarea id="slides-input" rows="9" placeholder="다친 친구를 3주 내내&#10;한자리에서 기다린 코끼리&#10;&gt; 귀여운 코끼리와 강아지 장면 프롬프트&#10;&#10;둘째 장 이야기 문장&#10;&gt; 둘째 장면 프롬프트"></textarea>
+      <div class="row">
+        <button id="btn-slides">슬라이드 설정</button>
+        <button id="btn-slides-gen">슬라이드 이미지 전부 생성</button>
+        <span id="slides-result"></span>
+      </div>
+      <div id="slide-renders"></div>
+      <h3>3. 검수</h3>
+      <div id="manual-checks"></div>
+      <button id="btn-review">검수 실행</button>
+      <pre id="review-result"></pre>
+      <div class="row">
+        <button id="btn-export">게시 패키지 내보내기</button>
+        <span id="export-result"></span>
+      </div>
+      <div class="row">
+        <button id="btn-enqueue">게시 큐에 추가 (반자동 운영)</button>
+        <span id="enqueue-result"></span>
+      </div>
+      <p class="hint">큐에 넣으면 운영자(사용자 또는 연결된 에이전트)가 연결된 인스타 계정으로 게시하고 결과를 여기에 기록합니다. 앱이 혼자 게시하지는 않습니다.</p>
+      <div class="row">
+        <input type="number" id="views" placeholder="게시 후 조회수">
+        <button id="btn-views">성과 기록</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- 보드·배치 -->
+  <div id="tab-board" hidden>
+    <section>
+      <h2>상태 보드</h2>
+      <div class="row">
+        <button id="btn-batch-copies">선택 소재 카피 일괄 생성</button>
+        <button id="btn-batch-render">선택 소재 일괄 합성</button>
+        <button id="btn-batch-loc">선택 소재 전 언어 현지화</button>
+      </div>
+      <pre id="batch-result"></pre>
+      <div id="board"></div>
+    </section>
+    <section>
+      <h2>게시 큐 (반자동 운영)</h2>
+      <button id="btn-queue-refresh">큐 새로고침</button>
+      <div id="queue"></div>
+    </section>
+  </div>
+
+  <!-- 소싱 -->
+  <div id="tab-sourcing" hidden>
+    <section>
+      <h2>탐색 쿼리 (주제별)</h2>
+      <div class="row">
+        <select id="src-topic"></select>
+        <button id="btn-queries">쿼리 만들기</button>
+      </div>
+      <div id="queries"></div>
+      <p class="hint">소재 수집과 권리 확인은 직접 합니다. 자동 수집은 검수 원칙상 넣지 않았습니다 (스펙 FR-9).</p>
+    </section>
+    <section>
+      <h2>AI 재생성으로 소재 만들기</h2>
+      <p class="hint">원본 사진을 쓸 수 없을 때, 스토리 장면을 AI 이미지로 새로 그립니다. 출처에는 원본 스토리가 강제 기록되고 권리 상태는 자체 생성물로 시작합니다. 실사진처럼 속이지 않기 위해 게시 캡션에 재구성 이미지임을 밝히는 게 원칙입니다.</p>
+      <div class="row">
+        <input type="text" id="regen-url" placeholder="원본 스토리 URL" size="42">
+        <input type="text" id="regen-fact" placeholder="핵심 사실 (선택)">
+      </div>
+      <div class="row">
+        <input type="text" id="regen-prompt" placeholder="장면 프롬프트 (영어 권장): 예) An elephant waiting beside a fence at a green sanctuary..." size="72">
+        <button id="btn-regen">재생성해 소재 등록</button>
+      </div>
+      <span id="regen-result"></span>
+    </section>
+    <section>
+      <h2>후보 수집함</h2>
+      <div class="row">
+        <input type="text" id="cand-url" placeholder="후보 URL" size="42">
+        <input type="text" id="cand-note" placeholder="메모 (핵심 사실 등)">
+        <button id="btn-cand-add">후보 추가</button>
+      </div>
+      <div id="candidates"></div>
+    </section>
+  </div>
+
+  <!-- 성과 -->
+  <div id="tab-analytics" hidden>
+    <section>
+      <h2>성과 분석</h2>
+      <button id="btn-analytics">불러오기</button>
+      <div id="analytics"></div>
+    </section>
+    <section>
+      <h2>승인 패턴 라이브러리</h2>
+      <div id="patterns"></div>
+    </section>
+  </div>
+
+  <!-- 설정 -->
+  <div id="tab-settings" hidden>
+    <section>
+      <h2>설정 (개인 설정 — user.json에 저장, 공개 저장소에 안 올라감)</h2>
+      <h3>현지화 대상 언어</h3>
+      <div id="set-langs"></div>
+      <p class="hint" id="threshold-note"></p>
+      <h3>템플릿</h3>
+      <div class="row">
+        <label>강조 색상 <input type="color" id="set-accent" value="#FFE600"></label>
+        <label>글자 크기 <input type="number" id="set-fontsize" value="64" style="width:70px"></label>
+      </div>
+      <h3>카피</h3>
+      <div class="row">
+        <label>후보 수 <input type="number" id="set-count" value="5" style="width:60px"></label>
+        <label>최소 자수 <input type="number" id="set-min" value="15" style="width:60px"></label>
+        <label>최대 자수 <input type="number" id="set-max" value="28" style="width:60px"></label>
+      </div>
+      <button id="btn-settings-save">설정 저장</button>
+      <span id="settings-result"></span>
+      <p class="hint">프로바이더(스텁/실모델)와 API 키는 .env에서 바꿉니다 (비밀 분리 원칙). 프로바이더 변경은 서버 재시작이 필요합니다.</p>
+    </section>
+  </div>
+</main>
+<pre id="error"></pre>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+{"copy":{"candidate_count":5,"max_chars":28,"max_lines":2,"min_chars":15},"data_dir":"data","languages":{"base":"ko","targets":["en","ja"]},"provider":"stub","render":{"accent_color":"#FFE600","font_path":"","font_size":64,"height":1350,"text_color":"#FFFFFF","width":1080},"server":{"host":"127.0.0.1","port":8765}}

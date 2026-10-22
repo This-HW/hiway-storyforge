@@ -1,0 +1,17 @@
+# --- private: personal settings, secrets, data (never committed) ---
+.env
+config/user.json
+data/*
+!data/.gitkeep
+private/*
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# --- misc ---
+.DS_Store
+*.zip

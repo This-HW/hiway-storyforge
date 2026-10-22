@@ -1,0 +1,25 @@
+body { font-family: system-ui, sans-serif; margin: 0; background: #111; color: #eee; }
+header { display: flex; gap: 12px; align-items: center; padding: 12px 20px; background: #1b1b22; flex-wrap: wrap; }
+nav { display: flex; gap: 6px; margin-left: auto; }
+nav .tab { background: #26262e; }
+nav .tab.active { background: #6c3df4; }
+a { color: #9ecbff; }
+h1 { font-size: 18px; margin: 0; }
+.badge { background: #6c3df4; padding: 2px 8px; border-radius: 8px; font-size: 12px; }
+main { max-width: 860px; margin: 0 auto; padding: 16px; }
+section { background: #1b1b22; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+input, select, button { padding: 8px; border-radius: 6px; border: 1px solid #444; background: #26262e; color: #eee; margin: 2px; }
+button { cursor: pointer; background: #6c3df4; border: none; }
+button:hover { background: #7f56ff; }
+.row { margin: 8px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.hint { color: #999; font-size: 12px; }
+.mat { display: flex; gap: 10px; align-items: center; padding: 6px; border-bottom: 1px solid #333; cursor: pointer; }
+.mat img { width: 54px; height: 68px; object-fit: cover; border-radius: 6px; }
+.mat .status { color: #ffd94d; font-size: 12px; }
+#wb-image { max-width: 270px; border-radius: 8px; }
+.copy { padding: 8px; margin: 4px 0; background: #26262e; border-radius: 8px; cursor: pointer; }
+.copy.invalid { opacity: .55; border: 1px dashed #c0392b; }
+.copy .note { color: #999; font-size: 12px; margin-left: 8px; }
+#renders img { width: 200px; margin: 4px; border-radius: 8px; }
+#error { color: #ff7b72; max-width: 860px; margin: 0 auto; white-space: pre-wrap; }
+pre { white-space: pre-wrap; }

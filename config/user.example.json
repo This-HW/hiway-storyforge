@@ -1,0 +1,1 @@
+{"_comment":"Copy this file to user.json (git-ignored) and override only what you need. Priority: env vars > user.json > default.json.","languages":{"targets":["en","ja","es","pt","id","tr"]},"render":{"accent_color":"#FFE600","font_path":"/path/to/your/BoldFont.ttf"}}
