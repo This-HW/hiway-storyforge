@@ -1,6 +1,8 @@
 # --- private: personal settings, secrets, data (never committed) ---
 .env
 config/user.json
+channels/*.yaml
+!channels/.gitkeep
 data/*
 !data/.gitkeep
 private/*

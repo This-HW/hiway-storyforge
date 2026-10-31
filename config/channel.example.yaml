@@ -1,0 +1,46 @@
+# Channel configuration template.
+# Copy this file to channels/<your-channel>.yaml (git-ignored) and fill in your values.
+# This file documents the schema — actual configs with real account IDs must NEVER be committed.
+#
+# Usage:
+#   cp config/channel.example.yaml channels/my_channel.yaml
+#   # edit channels/my_channel.yaml with your values
+#   # run pipeline with: --channel my_channel
+
+channel_name: "my_channel"          # unique identifier, used as filename
+display_name: "My Channel"         # human-readable name
+
+# Instagram account (from Meta Accounts Center / instagram-cli accounts)
+instagram:
+  account_id: "REPLACE_WITH_YOUR_ACCOUNT_ID"  # user_fbid, e.g. "17841479999999999"
+
+# Brand assets — paths relative to your private workspace (NOT in OSS repo)
+brand:
+  watermark_top: "path/to/your/watermark_top.png"
+  footer_handle: "path/to/your/footer_handle.png"
+  colors:
+    primary: [13, 21, 38]      # background / main color [R, G, B]
+    accent: [201, 169, 97]     # highlight color [R, G, B]
+  fonts:
+    bold: "/path/to/your/BoldFont.ttc"
+    regular: "/path/to/your/RegularFont.ttc"
+
+# End card — appended as the last slide of every carousel
+endcard:
+  path: "path/to/your/endcard.jpg"
+  position: "last"               # currently only "last" is supported
+
+# Content tone — guides copy generation and review
+# Examples: "따뜻한 친구" (animal stories), "옆집 전문가" (educational)
+tone: "YOUR_TONE_HERE"
+
+# Caption format — must match a format defined in copy-style/STYLE_RULES.md
+caption:
+  format: "YOUR_FORMAT_HERE"    # e.g. "animal_v2", "property"
+  hashtags: ["#yourbrand"]      # always appended
+
+# Posting schedule
+posting:
+  time_window: ["18:00", "21:00"]  # random time within window, KST
+  timezone: "Asia/Seoul"
+  confirmation: "weekly_batch"     # or "per_post"
