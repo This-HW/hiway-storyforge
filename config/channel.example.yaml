@@ -44,3 +44,14 @@ posting:
   time_window: ["18:00", "21:00"]  # random time within window, KST
   timezone: "Asia/Seoul"
   confirmation: "weekly_batch"     # or "per_post"
+
+# Sourcing strategy — how content candidates are found
+# Available: "viral" (metrics-based, for entertainment)
+#            "knowledge_queue" (curated queue, for educational)
+sourcing:
+  strategy: "viral"
+  # strategy-specific settings:
+  min_views: 1000000              # viral: minimum views to qualify
+  exclude_keywords: []            # viral: filter out these keywords
+  # queue_path: ""                # knowledge_queue: path to queue markdown
+  # completed: []                 # knowledge_queue: already-published topics
