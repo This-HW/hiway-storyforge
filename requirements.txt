@@ -1,1 +1,2 @@
 Pillow>=10
+kiwipiepy>=0.19  # Korean morphological analysis for word-boundary wrapping (korean_text.py); without it, wrapping silently degrades to space-splitting

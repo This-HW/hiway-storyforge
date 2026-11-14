@@ -16,8 +16,9 @@ instagram:
 
 # Brand assets — paths relative to your private workspace (NOT in OSS repo)
 brand:
-  watermark_top: "path/to/your/watermark_top.png"
-  footer_handle: "path/to/your/footer_handle.png"
+  watermark_top: "path/to/your/watermark_top.png"   # "" = disabled
+  footer_handle: "path/to/your/footer_handle.png"   # "" = disabled
+  page_numbers: true    # false = no "N / TOTAL" bottom-right
   colors:
     primary: [13, 21, 38]      # background / main color [R, G, B]
     accent: [201, 169, 97]     # highlight color [R, G, B]
@@ -38,12 +39,22 @@ tone: "YOUR_TONE_HERE"
 caption:
   format: "YOUR_FORMAT_HERE"    # e.g. "animal_v2", "property"
   hashtags: ["#yourbrand"]      # always appended
+  source_attribution: true      # false = skip "source:" line in captions
+  emoji_policy: "none"          # "none" = no emoji in captions; a list = only those allowed; "allow" = unchecked
 
-# Posting schedule
+# Posting schedule — random times within slots, per account
 posting:
-  time_window: ["18:00", "21:00"]  # random time within window, KST
-  timezone: "Asia/Seoul"
-  confirmation: "weekly_batch"     # or "per_post"
+  timezone: "Asia/Seoul"       # IANA timezone for slot interpretation
+  slots:                        # one or more time slots per day
+    - start: "18:00"            # slot start (HH:MM, in timezone above)
+      end: "21:00"              # slot end (HH:MM)
+      count: 1                  # posts per day in this slot
+    # - start: "09:00"          # uncomment for a second daily slot
+    #   end: "11:00"
+    #   count: 1
+  confirmation: "weekly_batch"  # or "per_post"
+  # The scheduler (daily 00:00) draws random times within each slot.
+  # All accounts' times are kept >=10 min apart automatically.
 
 # Sourcing strategy — how content candidates are found
 # Available: "viral" (metrics-based, for entertainment)
