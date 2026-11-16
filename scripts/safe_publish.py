@@ -50,7 +50,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 CLI = "/opt/hatch/bin/instagram-cli"
-CHECK_LIMIT = 8
+# 2026-11-16: 8 -> 20. 계정 게시물이 20건을 넘어서, 8건 윈도우로는
+# 며칠 전 orphan-write/중복을 놓칠 수 있다. 캡션 비교 범위를 넓힌다.
+CHECK_LIMIT = 20
 
 
 def run_cli(args: list[str], timeout: int) -> tuple[int, str, str]:
