@@ -45,11 +45,12 @@ class QueueItem:
     caption: str
     langs: list[str] = field(default_factory=list)   # rendered languages included
     files: list[str] = field(default_factory=list)   # ordered post files (carousel)
-    status: str = "대기"          # 대기 | 게시완료 | 실패 | 취소
+    status: str = "대기"          # 대기 | 컨펌됨 | 확인필요 | 게시완료 | 실패 | 취소
     post_url: str = ""
     error: str = ""
     created_at: str = ""
     published_at: str = ""
+    post_id: str = ""
     scheduled_for: str = ""       # target posting time (local), evening window by default
 
     def to_dict(self) -> dict:
@@ -111,6 +112,7 @@ class Material:
     manual_checks: list[str] = field(default_factory=list)
     views: int | None = None
     posted_at: str = ""
+    original_ratio: bool = False
     regen_prompt: str = ""               # FR-11: set when the image is AI-regenerated
     # FR-12 story carousel: slides[0] is the hook (text == chosen_copy);
     # later slides carry one story beat each. Empty = single-image post.

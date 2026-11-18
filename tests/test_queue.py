@@ -59,8 +59,12 @@ class TestQueue(unittest.TestCase):
         self.assertEqual(len(item.files), 1)
         with self.assertRaises(ValueError):  # duplicate waiting item
             self.pipe.enqueue(mat.id)
+        self.assertEqual(self.pipe.confirm_queue_item(item.id).status, "컨펌됨")
+        with self.assertRaises(ValueError):
+            self.pipe.enqueue(mat.id)
         item = self.pipe.record_publish_result(
-            item.id, status="게시완료", post_url="https://instagram.com/p/xyz")
+            item.id, status="게시완료", post_url="https://instagram.com/p/xyz", post_id="xyz")
+        self.assertEqual(self.pipe.store.get_queue_item(item.id).post_id, "xyz")
         self.assertEqual(item.status, "게시완료")
         self.assertTrue(item.published_at)
         mat = self.pipe.store.get(mat.id)
@@ -69,6 +73,11 @@ class TestQueue(unittest.TestCase):
     def test_publish_failure_recorded(self):
         mat = self._complete_material()
         item = self.pipe.enqueue(mat.id)
+        self.pipe.record_publish_result(item.id, status="확인필요", error="timeout")
+        with self.assertRaises(ValueError):
+            self.pipe.confirm_queue_item(item.id)
+        with self.assertRaises(ValueError):
+            self.pipe.enqueue(mat.id)
         item = self.pipe.record_publish_result(item.id, status="실패", error="한도 초과")
         self.assertEqual(item.error, "한도 초과")
 

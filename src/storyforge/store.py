@@ -5,6 +5,7 @@ import json
 import uuid
 from pathlib import Path
 
+from .config import write_json
 from .models import Material
 
 
@@ -21,8 +22,7 @@ class Store:
         return json.loads(self.index_path.read_text(encoding="utf-8"))
 
     def _save(self, index: dict) -> None:
-        self.index_path.write_text(
-            json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
+        write_json(self.index_path, index)
 
     def new_id(self) -> str:
         return uuid.uuid4().hex[:12]
@@ -66,8 +66,7 @@ class Store:
         return json.loads(self._cand_path.read_text(encoding="utf-8"))
 
     def _save_candidates(self, data: dict) -> None:
-        self._cand_path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        write_json(self._cand_path, data)
 
     def add_candidate(self, cand) -> object:
         data = self._load_candidates()
@@ -96,8 +95,7 @@ class Store:
         return json.loads(self._queue_path.read_text(encoding="utf-8"))
 
     def _save_queue(self, data: dict) -> None:
-        self._queue_path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        write_json(self._queue_path, data)
 
     def add_queue_item(self, item) -> object:
         data = self._load_queue()
@@ -118,7 +116,7 @@ class Store:
 
     def update_queue_item(self, item) -> None:
         data = self._load_queue()
-        data[item.id] = item.to_dict()
+        data[item.id] = {**data.get(item.id, {}), **item.to_dict()}
         self._save_queue(data)
 
     # -- approved copy patterns (SPEC §9-2, P1) --------------------------------
@@ -136,6 +134,5 @@ class Store:
         if any(p["text"] == text for p in patterns):
             return patterns
         patterns.append({"text": text, "topic": topic})
-        self._patterns_path.write_text(
-            json.dumps(patterns, ensure_ascii=False, indent=1), encoding="utf-8")
+        write_json(self._patterns_path, patterns)
         return patterns

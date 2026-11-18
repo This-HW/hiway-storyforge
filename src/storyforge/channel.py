@@ -4,9 +4,9 @@ Loads per-channel settings from YAML files OUTSIDE the OSS repo.
 Actual channel configs (with real account IDs) must never be committed.
 
 Search order for channels/<name>.yaml:
-  1. ./channels/<name>.yaml (current directory)
-  2. ~/workspace/channels/<name>.yaml
-  3. Path from STORYFORGE_CHANNELS_DIR env var
+  1. Path from STORYFORGE_CHANNELS_DIR env var
+  2. ./channels/<name>.yaml (current directory)
+  3. ~/workspace/channels/<name>.yaml
 
 The OSS repo ships only config/channel.example.yaml (template with placeholder values).
 """
@@ -34,6 +34,8 @@ def _candidate_dirs() -> list[Path]:
 
 def find_channel_file(name: str) -> Path | None:
     """Return the path to channels/<name>.yaml, or None if not found."""
+    if not name or Path(name).name != name:
+        raise ValueError("invalid channel name")
     filename = f"{name}.yaml"
     for d in _candidate_dirs():
         p = d / filename
@@ -79,7 +81,7 @@ def load_channel(name: str) -> dict:
     for keys in required:
         node = cfg
         for k in keys:
-            if isinstance(node, dict) and k in node:
+            if isinstance(node, dict) and node.get(k) not in (None, ""):
                 node = node[k]
             else:
                 missing.append(".".join(keys))

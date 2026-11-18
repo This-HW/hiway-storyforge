@@ -13,6 +13,17 @@ async function api(path, body) {
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
 }
+function escapeHTML(value) {
+  const entities = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  return String(value ?? "").replace(/[&<>"']/g, ch => entities[ch]);
+}
+function linkURL(value) {
+  try {
+    const url = new URL(value);
+    if (["http:", "https:"].includes(url.protocol)) return escapeHTML(url.href);
+  } catch { /* Older records may contain a description instead of a URL. */ }
+  return "#";
+}
 function showError(err) { $("error").textContent = err ? String(err.message || err) : ""; }
 
 // --- tabs -------------------------------------------------------------------
@@ -37,7 +48,7 @@ async function loadMeta() {
   $("manual-checks").innerHTML = manualCheckItems.map(item =>
     `<label><input type="checkbox" class="mcheck" value="${item}"> ${item}</label><br>`).join("");
   $("loc-buttons").innerHTML = meta.targets.map(lang =>
-    `<button class="loc-btn" data-lang="${lang}">${lang} 버전</button>`).join("");
+    `<button class="loc-btn" data-lang="${escapeHTML(lang)}">${escapeHTML(lang)} 버전</button>`).join("");
   document.querySelectorAll(".loc-btn").forEach(b => b.addEventListener("click", async () => {
     try { const m = await api(`/api/materials/${currentId}/localize`, { lang: b.dataset.lang }); renderRenders(m); }
     catch (e) { showError(e); }
@@ -78,15 +89,51 @@ $("btn-settings-save").addEventListener("click", async () => {
 // --- materials ----------------------------------------------------------------
 async function loadMaterials() {
   allMaterials = await api("/api/materials");
-  $("materials").innerHTML = allMaterials.map(m => `
-    <div class="mat" data-id="${m.id}">
-      <img src="/api/files/${m.image_rel}">
-      <div>${m.topic || "-"}<br><span class="status">${m.status}</span></div>
-      <div>${m.fact || ""}</div>
+  for (const [id, key] of [["filter-status", "status"], ["filter-topic", "topic"]]) {
+    const select = $(id);
+    const previous = select.value;
+    select.replaceChildren(new Option("전체", ""));
+    [...new Set(allMaterials.map(m => m[key]).filter(Boolean))].sort().forEach(v => select.add(new Option(v, v)));
+    select.value = previous;
+    select.onchange = renderMaterials;
+  }
+  renderMaterials();
+}
+
+function renderMaterials() {
+  const visible = allMaterials.filter(m =>
+    (!$("filter-status").value || m.status === $("filter-status").value) &&
+    (!$("filter-topic").value || m.topic === $("filter-topic").value));
+  $("materials").innerHTML = visible.map(m => `
+    <div class="mat" data-id="${escapeHTML(m.id)}">
+      <img src="/api/files/${escapeHTML(m.image_rel)}">
+      <div>${escapeHTML(m.topic || "-")}<br><span class="status">${escapeHTML(m.status)}</span></div>
+      <div>${escapeHTML(m.fact || "")}</div>
     </div>`).join("") || "<p>아직 소재가 없습니다.</p>";
   document.querySelectorAll(".mat").forEach(el =>
     el.addEventListener("click", () => openWorkbench(el.dataset.id)));
 }
+
+let subject = null;
+function updatePreview() {
+  const image = $("wb-image"), frame = $("layout-preview"), copy = $("preview-copy");
+  frame.style.aspectRatio = $("original-ratio").checked && image.naturalWidth
+    ? image.naturalWidth + "/" + image.naturalHeight : "4/5";
+  copy.textContent = $("chosen").value;
+  const bounds = frame.getBoundingClientRect(), label = copy.getBoundingClientRect();
+  const x = subject && bounds.left + subject.x * bounds.width;
+  const y = subject && bounds.top + subject.y * bounds.height;
+  $("overlap").textContent = subject && x >= label.left && x <= label.right && y >= label.top && y <= label.bottom
+    ? "선택한 피사체와 문구 영역이 겹칩니다." : "";
+}
+$("wb-image").onload = updatePreview;
+$("chosen").oninput = updatePreview;
+$("original-ratio").onchange = () => { subject = null; updatePreview(); };
+$("layout-preview").onclick = event => {
+  const bounds = event.currentTarget.getBoundingClientRect();
+  subject = {x: (event.clientX - bounds.left) / bounds.width, y: (event.clientY - bounds.top) / bounds.height};
+  updatePreview();
+};
 
 function openWorkbench(id) {
   currentId = id;
@@ -94,25 +141,38 @@ function openWorkbench(id) {
   if (!m) return;
   $("workbench").hidden = false;
   $("wb-title").textContent = `${m.topic} / ${m.status}`;
+  subject = null;
+  $("original-ratio").checked = !!m.original_ratio;
   $("wb-image").src = "/api/files/" + m.image_rel;
   $("fact").value = m.fact || "";
+  $("chosen").value = m.chosen_copy || "";
+  updatePreview();
+  $("highlight").value = m.highlight || "";
+  $("slides-input").value = "";
+  $("views").value = m.views ?? "";
+  $("fact-candidates").textContent = (m.fact_candidates || []).join(" | ");
+  for (const id of ["slides-result", "export-result", "enqueue-result"]) $(id).textContent = "";
+  $("review-result").textContent = (m.review?.blockers || []).join("\n");
+  document.querySelectorAll(".mcheck").forEach(c => {
+    c.checked = (m.manual_checks || []).includes(c.value);
+  });
   renderCopies(m); renderRenders(m);
 }
 
 function renderCopies(m) {
   $("copies").innerHTML = (m.copies || []).map(c => `
-    <div class="copy ${c.valid ? "" : "invalid"}" data-text="${c.text.replace(/"/g, "&quot;")}">
-      ${c.text}<span class="note">[${c.lang}] ${c.note}${c.valid ? "" : " / " + (c.issues || []).join(", ")}</span>
+    <div class="copy ${c.valid ? "" : "invalid"}" data-text="${escapeHTML(c.text)}">
+      ${escapeHTML(c.text)}<span class="note">[${escapeHTML(c.lang)}] ${escapeHTML(c.note)}${c.valid ? "" : " / " + escapeHTML((c.issues || []).join(", "))}</span>
     </div>`).join("");
   document.querySelectorAll(".copy").forEach(el =>
-    el.addEventListener("click", () => { $("chosen").value = el.dataset.text; }));
+    el.addEventListener("click", () => { $("chosen").value = el.dataset.text; updatePreview(); }));
 }
 
 function renderRenders(m) {
   $("renders").innerHTML = Object.entries(m.renders || {}).map(([lang, rel]) =>
-    `<figure style="display:inline-block;margin:4px"><img src="/api/files/${rel}"><figcaption>${lang}</figcaption></figure>`).join("");
+    `<figure style="display:inline-block;margin:4px"><img src="/api/files/${escapeHTML(rel)}"><figcaption>${escapeHTML(lang)}</figcaption></figure>`).join("");
   $("slide-renders").innerHTML = (m.slide_renders || []).map((rel, i) =>
-    `<figure style="display:inline-block;margin:4px"><img src="/api/files/${rel}"><figcaption>슬라이드 ${i + 1}</figcaption></figure>`).join("");
+    `<figure style="display:inline-block;margin:4px"><img src="/api/files/${escapeHTML(rel)}"><figcaption>슬라이드 ${i + 1}</figcaption></figure>`).join("");
   if ((m.slides || []).length && !$("slides-input").value) {
     $("slides-input").value = m.slides.map(s =>
       s.text + (s.prompt ? "\n> " + s.prompt : "")).join("\n\n");
@@ -153,11 +213,11 @@ function renderBoard() {
   const groups = {};
   allMaterials.forEach(m => { (groups[m.status] = groups[m.status] || []).push(m); });
   $("board").innerHTML = Object.entries(groups).map(([status, items]) => `
-    <h3>${status} (${items.length})</h3>
+    <h3>${escapeHTML(status)} (${items.length})</h3>
     ${items.map(m => `<div class="mat">
-      <label><input type="checkbox" class="batch-check" value="${m.id}"></label>
-      <img src="/api/files/${m.image_rel}">
-      <div>${m.topic}<br><span class="status">${m.fact || ""}</span></div>
+      <label><input type="checkbox" class="batch-check" value="${escapeHTML(m.id)}"></label>
+      <img src="/api/files/${escapeHTML(m.image_rel)}">
+      <div>${escapeHTML(m.topic)}<br><span class="status">${escapeHTML(m.fact || "")}</span></div>
       ${m.views != null ? `<div>조회 ${m.views.toLocaleString()}</div>` : ""}
     </div>`).join("")}`).join("") || "<p>소재가 없습니다.</p>";
 }
@@ -193,23 +253,24 @@ async function loadCandidates() {
   const list = await api("/api/candidates");
   $("candidates").innerHTML = list.map(c => `
     <div class="mat">
-      <div><a href="${c.url}" target="_blank">${c.url}</a><br>
-      <span class="status">${c.topic} / ${c.status}</span> ${c.note || ""}</div>
-      <button class="cand-adopt" data-id="${c.id}">채택</button>
-      <button class="cand-drop" data-id="${c.id}">버림</button>
-      <button class="cand-use" data-id="${c.id}" data-url="${c.url}">소재 등록에 사용</button>
-      <button class="cand-regen" data-url="${c.url}" data-note="${(c.note || "").replace(/"/g, "&quot;")}">이 스토리로 AI 재생성</button>
+      <div><a href="${linkURL(c.url)}" target="_blank">${escapeHTML(c.url)}</a><br>
+      <span class="status">${escapeHTML(c.topic)} / ${escapeHTML(c.status)}</span> ${escapeHTML(c.note || "")}</div>
+      <button class="cand-adopt" data-id="${escapeHTML(c.id)}">채택</button>
+      <button class="cand-drop" data-id="${escapeHTML(c.id)}">버림</button>
+      <button class="cand-use" data-id="${escapeHTML(c.id)}" data-url="${escapeHTML(c.url)}">소재 등록에 사용</button>
+      <button class="cand-regen" data-url="${escapeHTML(c.url)}" data-note="${escapeHTML(c.note)}">이 스토리로 AI 재생성</button>
     </div>`).join("") || "<p>후보가 없습니다.</p>";
   document.querySelectorAll(".cand-adopt").forEach(b => b.addEventListener("click", async () => {
-    await api(`/api/candidates/${b.dataset.id}`, { status: "채택" }); loadCandidates(); }));
+    await api(`/api/candidates/${b.dataset.id}/status`, { status: "채택" }); loadCandidates(); }));
   document.querySelectorAll(".cand-drop").forEach(b => b.addEventListener("click", async () => {
-    await api(`/api/candidates/${b.dataset.id}`, { status: "버림" }); loadCandidates(); }));
+    await api(`/api/candidates/${b.dataset.id}/status`, { status: "버림" }); loadCandidates(); }));
   document.querySelectorAll(".cand-use").forEach(b => b.addEventListener("click", () => {
     $("source").value = b.dataset.url;
     document.querySelector('[data-tab="make"]').click();
     window.scrollTo(0, 0);
   }));
   document.querySelectorAll(".cand-regen").forEach(b => b.addEventListener("click", () => {
+    document.querySelector('[data-tab="sourcing"]').click();
     $("regen-url").value = b.dataset.url;
     window.scrollTo(0, 0);
     $("regen-prompt").focus();
@@ -238,15 +299,15 @@ async function loadAnalytics() {
   try {
     const a = await api("/api/analytics");
     const topics = Object.entries(a.by_topic).map(([t, b]) =>
-      `<div class="copy">${t}: ${b.count}건, 총 ${b.views.toLocaleString()}, 평균 ${b.avg_views.toLocaleString()}</div>`).join("");
+      `<div class="copy">${escapeHTML(t)}: ${b.count}건, 총 ${b.views.toLocaleString()}, 평균 ${b.avg_views.toLocaleString()}</div>`).join("");
     const top = a.top.map(m =>
-      `<div class="copy">${(m.views || 0).toLocaleString()} — ${m.copy || m.fact} <span class="note">${m.topic}</span></div>`).join("");
+      `<div class="copy">${(m.views || 0).toLocaleString()} — ${escapeHTML(m.copy || m.fact)} <span class="note">${escapeHTML(m.topic)}</span></div>`).join("");
     $("analytics").innerHTML =
       `<p>전체 소재 ${a.total_materials} / 게시 ${a.posted} / 총 조회 ${(a.total_views || 0).toLocaleString()} ` +
       `(한국 월 최소 기준 ${a.kr_monthly_min_views.toLocaleString()})</p><h3>주제별</h3>${topics || "<p>기록 없음</p>"}<h3>상위 게시물</h3>${top || "<p>기록 없음</p>"}`;
     const patterns = await api("/api/patterns");
     $("patterns").innerHTML = patterns.map(p =>
-      `<div class="copy">${p.text}<span class="note">${p.topic}</span></div>`).join("") || "<p>아직 승인 패턴이 없습니다. 카피를 확정하면 쌓입니다.</p>";
+      `<div class="copy">${escapeHTML(p.text)}<span class="note">${escapeHTML(p.topic)}</span></div>`).join("") || "<p>아직 승인 패턴이 없습니다. 카피를 확정하면 쌓입니다.</p>";
   } catch (e) { showError(e); }
 }
 $("btn-analytics").addEventListener("click", loadAnalytics);
@@ -287,7 +348,7 @@ $("btn-copies").addEventListener("click", async () => {
 $("btn-choose").addEventListener("click", async () => {
   try {
     await api(`/api/materials/${currentId}/choose`,
-      { text: $("chosen").value, highlight: $("highlight").value });
+      { text: $("chosen").value, highlight: $("highlight").value, original_ratio: $("original-ratio").checked });
     await refresh();
   } catch (e) { showError(e); }
 });
@@ -303,6 +364,7 @@ $("btn-review").addEventListener("click", async () => {
   try {
     const checks = [...document.querySelectorAll(".mcheck")].filter(c => c.checked).map(c => c.value);
     const m = await api(`/api/materials/${currentId}/review`, { manual_checks: checks });
+    await loadMaterials();
     $("review-result").textContent =
       "상태: " + m.status + "\n자동 발견: " + JSON.stringify(m.review.auto_findings) +
       "\n차단 사유: " + JSON.stringify(m.review.blockers);
@@ -311,7 +373,7 @@ $("btn-review").addEventListener("click", async () => {
 $("btn-export").addEventListener("click", async () => {
   try {
     const r = await api(`/api/materials/${currentId}/export`, {});
-    $("export-result").innerHTML = `패키지: <a href="/api/files/${r.zip}">zip 다운로드</a>`;
+    $("export-result").innerHTML = `패키지: <a href="/api/files/${escapeHTML(r.zip)}">zip 다운로드</a>`;
   } catch (e) { showError(e); }
 });
 $("btn-enqueue").addEventListener("click", async () => {
@@ -326,15 +388,22 @@ async function loadQueue() {
     const list = await api("/api/queue");
     $("queue").innerHTML = list.map(q => `
       <div class="copy">
-        <b>${q.status}</b> — ${q.caption.split("\n")[0]}
-        <span class="note">소재 ${q.material_id} / 언어 ${q.langs.join(",")} / 등록 ${q.created_at}${q.scheduled_for ? " / 게시 목표 " + q.scheduled_for : ""}</span>
-        ${q.post_url ? `<br><a href="${q.post_url}" target="_blank">${q.post_url}</a>` : ""}
-        ${q.error ? `<br>오류: ${q.error}` : ""}
-        ${q.status === "대기" ? `<br>
-          <input type="text" class="q-url" data-id="${q.id}" placeholder="게시 후 URL (운영자 기록용)" size="36">
-          <button class="q-done" data-id="${q.id}">게시완료 기록</button>
-          <button class="q-cancel" data-id="${q.id}">취소</button>` : ""}
+        <b>${escapeHTML(q.status)}</b> — ${escapeHTML(q.caption.split("\n")[0])}
+        <span class="note">소재 ${escapeHTML(q.material_id)} / 언어 ${escapeHTML(q.langs.join(","))} / 등록 ${escapeHTML(q.created_at)}${q.scheduled_for ? " / 게시 목표 " + escapeHTML(q.scheduled_for) : ""}</span>
+        ${q.post_url ? `<br><a href="${linkURL(q.post_url)}" target="_blank">${escapeHTML(q.post_url)}</a>` : ""}
+        ${q.error ? `<br>오류: ${escapeHTML(q.error)}` : ""}
+        ${q.status === "대기" ? `<button class="q-confirm" data-id="${escapeHTML(q.id)}">예약 발행 컨펌</button>` : ""}
+        ${["대기", "컨펌됨", "확인필요"].includes(q.status) ? `<br>
+          <input type="text" class="q-url" data-id="${escapeHTML(q.id)}" placeholder="게시 후 URL (운영자 기록용)" size="36">
+          <button class="q-done" data-id="${escapeHTML(q.id)}">게시완료 기록</button>
+          <button class="q-cancel" data-id="${escapeHTML(q.id)}">취소</button>` : ""}
       </div>`).join("") || "<p>큐가 비어 있습니다.</p>";
+    document.querySelectorAll(".q-confirm").forEach(b => b.addEventListener("click", async () => {
+      try {
+        await api(`/api/queue/${b.dataset.id}/confirm`, {});
+        await loadQueue();
+      } catch (e) { showError(e); }
+    }));
     document.querySelectorAll(".q-done").forEach(b => b.addEventListener("click", async () => {
       const url = document.querySelector(`.q-url[data-id="${b.dataset.id}"]`).value;
       await api(`/api/queue/${b.dataset.id}/result`, { status: "게시완료", post_url: url });

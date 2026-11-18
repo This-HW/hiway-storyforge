@@ -87,3 +87,12 @@ class TestGenerateSchedule(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_overlapping_slots_cannot_violate_interval():
+    import pytest
+    channels = make_channels()
+    for cfg in channels.values():
+        cfg["posting"]["slots"] = [{"start": "18:00", "end": "18:05", "count": 1}]
+    with pytest.raises(ValueError):
+        generate_schedule(channels)
