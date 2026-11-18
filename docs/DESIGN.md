@@ -6,8 +6,16 @@
 
 - **Modular Monolith + Ports & Adapters (모델 경계만)**: 단일 Python 패키지, 웹 서버 1개. AI 모델 호출만 프로바이더 인터페이스 뒤에 둔다.
 - **의존성 방향**: `web → services → (rules, render, store, providers)`. `rules`·`render`는 다른 모듈을 import하지 않는다 (순수 함수). 순환 import 금지.
-- **제로에 가까운 의존성**: 런타임 의존성은 Pillow 하나. 웹 서버는 표준 라이브러리 `http.server`, 테스트는 `unittest`. 설치 장벽을 낮추는 것이 OSS 확산 조건이다.
+- **제로에 가까운 의존성**: 이미지 처리는 Pillow, 한국어 줄바꿈은 kiwipiepy, 채널 설정은 PyYAML을 사용한다. 웹 서버는 표준 라이브러리 `http.server`, 테스트 실행기는 `pytest`. 설치 장벽을 낮추는 것이 OSS 확산 조건이다.
 - **로컬 퍼스트**: 모든 데이터는 `data/`(기본값) 아래 파일로 저장. DB 없음 (P0). 경로는 설정으로 교체 가능.
+
+### Muse 실행 환경
+
+Muse VM의 운영 에이전트가 제작·예약·게시 작업을 호출한다. 웹 프로세스는 로컬 파일과 JSON API를 제공한다. 텍스트·이미지 생성은 설정한 모델 프로바이더를 사용한다. 발행은 VM의 `instagram-cli`를 호출하는 `scripts/safe_publish.py`가 담당한다. 운영 에이전트는 CLI의 결과를 큐 결과 API에 기록한다. 정상 응답의 `media_id` 또는 중복 확인 응답의 `post_id`를 큐의 `post_id`에 저장한다.
+
+게시 스크립트의 CLI 인자와 JSON 필드는 저장소에서 관측한 Muse 내부 동작에 의존한다. `posts --account-id … --limit 20`의 `posts` 배열에서 캡션을 비교하고, `post-feed --account-id … --retries 0`에 파일 순서대로 `--file`을 붙인다. 필요한 경우 `--cover`, `--caption`, `--publish-at`을 전달한다. 테스트는 합성한 응답을 사용한다. 운영 VM에서는 실제 조회 결과와 대조한다.
+
+웹 요청 간 쓰기 작업을 직렬화하고 JSON 파일은 임시 파일에서 교체한다. 검수한 한국어 합성본은 버전별 경로에 저장해 큐 등록 후 재편집해도 예약 당시 파일을 읽을 수 있다.
 
 ## 2. 모듈 지도
 

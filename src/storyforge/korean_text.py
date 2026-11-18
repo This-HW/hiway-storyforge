@@ -13,7 +13,7 @@ Usage:
     lines = wrap_korean_text("긴 한국어 텍스트입니다", font, max_width=900, draw=draw)
 """
 
-from PIL import ImageFont
+from PIL import ImageFont, features
 
 try:
     from kiwipiepy import Kiwi
@@ -41,6 +41,8 @@ def load_korean_font(path, size, index=0):
     RAQM (via libraqm) handles complex text layout including proper
     Hangul syllable composition and spacing.
     """
+    if not features.check_feature("raqm"):
+        return ImageFont.truetype(path, size, index=index, layout_engine=ImageFont.Layout.BASIC)
     try:
         return ImageFont.truetype(
             path, size, index=index,

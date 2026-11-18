@@ -3,12 +3,15 @@ review -> export. (SPEC §5)"""
 from __future__ import annotations
 
 from dataclasses import asdict
+from io import BytesIO
+
+from PIL import Image, UnidentifiedImageError
 from pathlib import Path
 
 from . import export as export_mod
 from . import render as render_mod
 from . import rules
-from .models import CopyCandidate, Material
+from .models import CopyCandidate, LANGUAGES, Material
 from .providers import get_provider
 from .store import Store
 
@@ -27,6 +30,12 @@ class Pipeline:
             raise ValueError("출처는 필수입니다")
         if rights not in ("확인됨", "불명확", "사용불가"):
             raise ValueError("권리 상태가 올바르지 않습니다")
+        try:
+            with Image.open(BytesIO(image_bytes), formats=("JPEG", "PNG")) as image:
+                ext = {"PNG": ".png", "JPEG": ".jpg"}[image.format]
+                image.verify()
+        except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError) as exc:
+            raise ValueError("유효한 JPG 또는 PNG 이미지가 필요합니다") from exc
         mid = self.store.new_id()
         rel = self.store.save_image(mid, ext, image_bytes)
         material = Material(id=mid, image_rel=rel, source=source.strip(),
@@ -77,6 +86,15 @@ class Pipeline:
         material = self._get(material_id)
         if not fact.strip():
             raise ValueError("핵심 사실은 비어 있을 수 없습니다")
+        if material.fact and material.fact != fact.strip():
+            material.copies = []
+            material.chosen_copy = material.highlight = ""
+            material.slides = []
+            material.renders = {}
+            material.slide_renders = []
+            material.review = {}
+            material.manual_checks = []
+            material.status = "분석완료"
         material.fact = fact.strip()
         if visible_info is not None:
             material.visible_info = visible_info
@@ -112,15 +130,19 @@ class Pipeline:
         return material
 
     def _blockers(self, material: Material) -> list[str]:
-        has_render = bool(material.renders.get("ko")) or (
-            bool(material.slides)
-            and len(material.slide_renders) == len(material.slides))
+        files = list(material.renders.values()) + material.slide_renders
+        has_render = bool(material.renders.get("ko")) and (
+            not material.slides or len(material.slide_renders) == len(material.slides)
+        ) and all((self.dir / rel).is_file() for rel in files)
         return rules.export_blockers(
             material.rights, material.review, material.manual_checks,
             has_render=has_render)
 
-    def choose_copy(self, material_id: str, text: str, highlight: str = "") -> Material:
+    def choose_copy(self, material_id: str, text: str, highlight: str = "",
+                    original_ratio: bool | None = None) -> Material:
         material = self._get(material_id)
+        if not material.fact:
+            raise ValueError("먼저 핵심 사실을 확정하세요")
         copy_cfg = self.cfg.get("copy", {})
         issues = rules.validate_copy_format(
             text,
@@ -129,6 +151,8 @@ class Pipeline:
             max_lines=int(copy_cfg.get("max_lines", 2)))
         if issues:
             raise ValueError("카피 형식 오류: " + "; ".join(issues))
+        if original_ratio is not None:
+            material.original_ratio = original_ratio
         material.chosen_copy = text
         material.highlight = highlight
         if material.slides:
@@ -153,6 +177,8 @@ class Pipeline:
         material = self._get(material_id)
         if not material.chosen_copy:
             raise ValueError("먼저 한국어 카피를 확정하세요")
+        if target_lang not in LANGUAGES or target_lang == "ko":
+            raise ValueError("지원하지 않는 현지화 언어입니다")
         results = self.provider.localize(
             material.chosen_copy, fact=material.fact, target_lang=target_lang)
         if results:
@@ -160,7 +186,10 @@ class Pipeline:
             out_rel = f"outputs/{material.id}/render_{target_lang}.jpg"
             render_mod.render(str(self.dir / material.image_rel), best.text,
                               str(self.dir / out_rel),
-                              highlight="", **self._render_kwargs())
+                              highlight="", **self._render_kwargs(material))
+            material.review = {}
+            material.manual_checks = []
+            material.status = "합성완료" if material.renders.get("ko") else "카피완료"
             material.renders[target_lang] = out_rel
             material.copies.extend(asdict(c) for c in results)
             self.store.update(material)
@@ -246,7 +275,7 @@ class Pipeline:
         top = sorted(posted, key=lambda m: m.views or 0, reverse=True)[:10]
         return {
             "total_materials": len(materials),
-            "posted": len(posted),
+            "posted": sum(m.status == "게시완료" for m in materials),
             "total_views": sum(m.views or 0 for m in posted),
             "by_topic": by_topic,
             "top": [{"id": m.id, "topic": m.topic, "fact": m.fact,
@@ -255,9 +284,10 @@ class Pipeline:
         }
 
     # FR-4 -----------------------------------------------------------------
-    def _render_kwargs(self) -> dict:
+    def _render_kwargs(self, material) -> dict:
         rcfg = self.cfg.get("render", {})
         return {
+            "original_ratio": material.original_ratio,
             "width": int(rcfg.get("width", 1080)),
             "height": int(rcfg.get("height", 1350)),
             "font_path": rcfg.get("font_path", ""),
@@ -280,11 +310,15 @@ class Pipeline:
                 raise ValueError(f"슬라이드 {i + 1} 문장은 최대 2줄입니다")
             if i > 0 and len(text.replace(" ", "")) > 45:
                 raise ValueError(f"슬라이드 {i + 1} 문장이 너무 깁니다 (공백 제외 45자 이내)")
+            rel = slide.get("image", "")
+            if rel and not (self.dir / rel).resolve().is_relative_to(self.dir.resolve()):
+                raise ValueError("슬라이드 이미지는 데이터 폴더 안에 있어야 합니다")
             cleaned.append({"text": text,
                             "prompt": slide.get("prompt", ""),
                             "image": slide.get("image", "")})
         if material.chosen_copy and cleaned[0]["text"] != material.chosen_copy:
             raise ValueError("첫 슬라이드 문장은 확정 카피와 같아야 합니다 (후킹 슬라이드)")
+        material.renders.pop("ko", None)
         material.slides = cleaned
         # New slides invalidate slide renders and any passed review.
         material.slide_renders = []
@@ -307,6 +341,10 @@ class Pipeline:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(image)
         material.slides[index]["image"] = rel
+        material.renders.pop("ko", None)
+        material.review = {}
+        material.manual_checks = []
+        material.status = "카피완료"
         material.slide_renders = []
         self.store.update(material)
         return material
@@ -315,15 +353,18 @@ class Pipeline:
         material = self._get(material_id)
         if not material.chosen_copy:
             raise ValueError("먼저 카피를 확정하세요")
+        material.review = {}
+        material.manual_checks = []
+        version = self.store.new_id()
         if material.slides:
-            kwargs = self._render_kwargs()
+            kwargs = self._render_kwargs(material)
             story_kwargs = dict(kwargs, font_size=int(kwargs["font_size"] * 0.72))
             rendered = []
             for i, slide in enumerate(material.slides):
                 src = slide.get("image") or (material.image_rel if i == 0 else "")
                 if not src:
                     raise ValueError(f"슬라이드 {i + 1} 이미지가 없습니다 — 먼저 생성하세요")
-                out_rel = f"outputs/{material.id}/slide_{i + 1}.jpg"
+                out_rel = f"outputs/{material.id}/{version}/slide_{i + 1}.jpg"
                 if i == 0:
                     render_mod.render(str(self.dir / src), slide["text"],
                                       str(self.dir / out_rel),
@@ -337,10 +378,10 @@ class Pipeline:
             material.status = "합성완료"
             self.store.update(material)
             return material
-        out_rel = f"outputs/{material.id}/render_ko.jpg"
+        out_rel = f"outputs/{material.id}/{version}/render_ko.jpg"
         render_mod.render(str(self.dir / material.image_rel), material.chosen_copy,
                           str(self.dir / out_rel),
-                          highlight=material.highlight, **self._render_kwargs())
+                          highlight=material.highlight, **self._render_kwargs(material))
         material.renders["ko"] = out_rel
         material.status = "합성완료"
         self.store.update(material)
@@ -350,6 +391,8 @@ class Pipeline:
     def review(self, material_id: str, manual_checks: list[str]) -> Material:
         material = self._get(material_id)
         findings = rules.screen_copy(material.chosen_copy) if material.chosen_copy else []
+        for i, slide in enumerate(material.slides[1:], start=2):
+            findings.extend(f"{i}장: {issue}" for issue in rules.screen_copy(slide["text"]))
         material.review = {"auto_findings": findings}
         material.manual_checks = manual_checks
         material.status = "검수대기"
@@ -380,10 +423,10 @@ class Pipeline:
         if material.status != "완성" or blockers:
             raise PermissionError("검수를 통과한(완성) 소재만 큐에 넣을 수 있습니다: "
                                   + "; ".join(blockers or ["상태가 '완성'이 아님"]))
-        if any(q.material_id == material_id and q.status == "대기"
+        if any(q.material_id == material_id and q.status in ("대기", "컨펌됨", "확인필요")
                for q in self.store.list_queue()):
             raise ValueError("이미 대기 중인 큐 항목이 있습니다")
-        caption = (f"{material.chosen_copy}\n\n"
+        caption = (f"{material.fact}\n\n"
                    f"#{material.topic.replace('·', '')} #사진이야기")
         files = list(material.slide_renders) or [material.renders["ko"]]
         # Posting-time logic (PLAYBOOK §5, HW 2026-10-21): no fixed time —
@@ -410,16 +453,33 @@ class Pipeline:
             scheduled_for=target.isoformat(timespec="seconds"))
         return self.store.add_queue_item(item)
 
+    def confirm_queue_item(self, queue_id: str):
+        item = self.store.get_queue_item(queue_id)
+        if item is None:
+            raise KeyError(f"큐 항목을 찾을 수 없음: {queue_id}")
+        if item.status not in ("대기", "컨펌됨"):
+            raise ValueError("처리가 끝난 큐 항목입니다")
+        if not item.files or not all((self.dir / rel).is_file() for rel in item.files):
+            raise ValueError("게시 파일이 누락되었습니다")
+        item.status = "컨펌됨"
+        self.store.update_queue_item(item)
+        return item
+
     def record_publish_result(self, queue_id: str, *, status: str,
-                              post_url: str = "", error: str = ""):
+                              post_url: str = "", error: str = "", post_id: str = ""):
         from datetime import datetime
 
         item = self.store.get_queue_item(queue_id)
         if item is None:
             raise KeyError(f"큐 항목을 찾을 수 없음: {queue_id}")
-        if status not in ("게시완료", "실패", "취소"):
+        if status not in ("게시완료", "실패", "취소", "확인필요"):
             raise ValueError("큐 결과 상태가 올바르지 않습니다")
+        if item.status not in ("대기", "컨펌됨", "확인필요"):
+            if (item.status, item.post_url, item.error, item.post_id) == (status, post_url, error, post_id):
+                return item
+            raise ValueError("처리가 끝난 큐 항목입니다")
         item.status = status
+        item.post_id = post_id
         item.post_url = post_url
         item.error = error
         if status == "게시완료":
@@ -438,6 +498,8 @@ class Pipeline:
         if material.status not in ("완성", "게시완료"):
             raise ValueError("게시된 소재에만 조회수를 기록할 수 있습니다 "
                              f"(현재 상태: {material.status})")
+        if views < 0:
+            raise ValueError("조회수는 0 이상이어야 합니다")
         material.views = views
         if posted_at:
             material.posted_at = posted_at

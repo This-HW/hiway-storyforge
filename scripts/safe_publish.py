@@ -45,11 +45,12 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
-CLI = "/opt/hatch/bin/instagram-cli"
+CLI = shutil.which("instagram-cli") or "/opt/hatch/bin/instagram-cli"
 # 2026-11-16: 8 -> 20. 계정 게시물이 20건을 넘어서, 8건 윈도우로는
 # 며칠 전 orphan-write/중복을 놓칠 수 있다. 캡션 비교 범위를 넓힌다.
 CHECK_LIMIT = 20
@@ -65,6 +66,8 @@ def run_cli(args: list[str], timeout: int) -> tuple[int, str, str]:
             timeout=timeout,
         )
         return proc.returncode, proc.stdout or "", proc.stderr or ""
+    except OSError as exc:
+        return 1, "", str(exc)
     except subprocess.TimeoutExpired as exc:
         out = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
         return 124, out, f"command timed out after {timeout}s"
@@ -120,7 +123,12 @@ def fetch_posts(account_id: str) -> list[dict]:
         data = json.loads(out)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"posts read returned non-JSON: {out[:200]}") from exc
-    return data.get("posts", []) or []
+    posts = data.get("posts") if isinstance(data, dict) else None
+    if not isinstance(posts, list) or not all(isinstance(p, dict) and
+            isinstance(p.get("post_caption"), (str, type(None))) and "post_caption" in p
+            for p in posts):
+        raise RuntimeError("posts read returned an unexpected response shape")
+    return posts
 
 
 def caption_match(post_caption: str, intended: str) -> bool:
@@ -172,7 +180,7 @@ def main() -> int:
     # Fail fast on missing inputs, before any account reads or publish
     # attempts: a missing caption/media file must be a clean report,
     # never a traceback or a wasted publish call.
-    missing = [f for f in args.file if not os.path.exists(f)]
+    missing = [f for f in args.file + args.cover if not os.path.isfile(f)]
     if missing:
         return report(1, "media file not found", {"missing": missing})
     caption = args.caption
@@ -183,6 +191,9 @@ def main() -> int:
         except OSError as exc:
             return report(1, "caption file unreadable",
                           {"path": args.caption_file, "error": str(exc)})
+
+    if not normalize_caption(caption):
+        return report(1, "caption required for duplicate check")
 
     # 1. Pre-publish duplicate check: never re-post a caption already on the account.
     try:
@@ -216,6 +227,7 @@ def main() -> int:
         media_id = ""
         try:
             data = json.loads(out)
+            data = data if isinstance(data, dict) else {}
             url = data.get("url") or ""
             media_id = data.get("media_id") or data.get("post_id") or ""
         except json.JSONDecodeError:
@@ -249,6 +261,7 @@ def main() -> int:
             1,
             f"publish returned rc={rc}; follow-up account check also failed: {exc}. "
             "Do NOT retry blindly — verify the post in the Instagram app first.",
+            {"needs_reconciliation": True},
         )
     # Post-failure check uses the same rule as the pre-check: any matching
     # caption already on the account means "already published", regardless of
@@ -268,6 +281,7 @@ def main() -> int:
         1,
         "failed_no_match",
         {"rc": rc, "stderr": err[:500], "stdout": out[:500],
+         "needs_reconciliation": True,
          "note": "no matching fresh post on the account; manual review before any retry"},
     )
 

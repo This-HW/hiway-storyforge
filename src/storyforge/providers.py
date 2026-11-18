@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import urllib.request
 from dataclasses import dataclass, field
 
@@ -93,7 +94,7 @@ class OpenAICompatibleProvider:
     def _parse_lines(raw: str) -> list[str]:
         lines = []
         for line in raw.splitlines():
-            line = line.strip(" -\t0123456789.)")
+            line = re.sub(r"^(?:[-*] |\d+[.)]\s+)", "", line.strip()).strip()
             if line:
                 lines.append(line)
         return lines
@@ -101,13 +102,14 @@ class OpenAICompatibleProvider:
     def analyze(self, image_path: str) -> AnalysisResult:
         with open(image_path, "rb") as fh:
             b64 = base64.b64encode(fh.read()).decode()
+        mime = "image/png" if image_path.lower().endswith(".png") else "image/jpeg"
         raw = self._chat([
             {"role": "user", "content": [
                 {"type": "text", "text":
                  "이 사진의 핵심 사실 후보 3개를 한 줄씩 써라. 그 다음 빈 줄 뒤에, "
                  "사진만 봐도 알 수 있는 정보(카피에 넣으면 안 되는 것)를 한 줄씩 써라."},
                 {"type": "image_url",
-                 "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                 "image_url": {"url": f"data:{mime};base64,{b64}"}},
             ]}])
         parts = raw.split("\n\n", 1)
         facts = self._parse_lines(parts[0])[:3]
@@ -126,12 +128,18 @@ class OpenAICompatibleProvider:
             f"사진이 이미 보여주는 정보(카피에 넣지 말 것): {', '.join(visible_info) or '없음'}\n"
             f"유머: {'한 스푼만' if humor else '넣지 말 것'}\n"
             f"{examples_block}"
-            f"후킹 카피 {count}개를 한 줄에 하나씩, 설명 없이 카피만 출력해라.")
+            f"후킹 카피 {count}개를 한 줄에 하나씩 출력해라. 각 줄은 카피, 탭 문자, "
+            "실제 적용한 편집 포인트 순서로 써라.")
         raw = self._chat([
             {"role": "system", "content": HOOK_SYSTEM},
             {"role": "user", "content": prompt}])
-        return [CopyCandidate(text=t, note="모델 생성")
-                for t in self._parse_lines(raw)[:count]]
+        candidates = []
+        for line in self._parse_lines(raw)[:count]:
+            text, _, note = line.partition("\t")
+            candidates.append(CopyCandidate(text=text.strip(), note=note.strip() or "모델 생성"))
+        if not candidates:
+            raise ValueError("모델이 카피 후보를 반환하지 않았습니다")
+        return candidates
 
     def localize(self, text: str, *, fact: str, target_lang: str) -> list[CopyCandidate]:
         prompt = (
@@ -194,6 +202,9 @@ class OpenAICompatibleImageProvider:
 def get_image_provider(cfg: dict):
     if cfg.get("provider") == "openai-compatible":
         return OpenAICompatibleImageProvider()
+    kind = cfg.get("provider", "stub")
+    if kind != "stub":
+        raise ValueError(f"지원하지 않는 이미지 프로바이더: {kind}")
     return StubImageProvider()
 
 
@@ -201,6 +212,8 @@ def get_provider(cfg: dict):
     kind = cfg.get("provider", "stub")
     if kind == "openai-compatible":
         return OpenAICompatibleProvider()
+    if kind != "stub":
+        raise ValueError(f"지원하지 않는 프로바이더: {kind}")
     return StubProvider()
 
 

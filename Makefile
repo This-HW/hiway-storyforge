@@ -8,7 +8,9 @@ run:
 seed:
 	PYTHONPATH=src $(PY) scripts/seed_demo.py
 
-demo: seed run
+demo: export PB_PROVIDER = stub
+demo: seed
+	PYTHONPATH=src $(PY) -m storyforge.web
 
 test:
-	PYTHONPATH=src $(PY) -m unittest discover -s tests -v
+	PYTHONPATH=src $(PY) -m pytest -q tests

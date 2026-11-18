@@ -62,7 +62,10 @@ def check_queue(path_str: str) -> dict:
     if err:
         return _check(f"queue:{path_str}", False, err)
     if isinstance(data, dict):
-        count = len(data.get("items", data))
+        entries = data.get("items", data)
+        if not isinstance(entries, (list, dict)):
+            return _check(f"queue:{path_str}", False, "unexpected items shape")
+        count = len(entries)
     elif isinstance(data, list):
         count = len(data)
     else:
@@ -82,6 +85,8 @@ def check_candidates(path_str: str, minimum: int, status: str) -> dict:
         items = data
     else:
         return _check(f"candidates:{path_str}", False, "unexpected shape")
+    if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
+        return _check(f"candidates:{path_str}", False, "unexpected candidates shape")
     from collections import Counter
     breakdown = Counter(
         it.get("status", "?") for it in items if isinstance(it, dict))
@@ -96,7 +101,7 @@ def check_candidates(path_str: str, minimum: int, status: str) -> dict:
 
 def check_file(path_str: str, label: str) -> dict:
     path = Path(path_str)
-    if not path.exists():
+    if not path.is_file():
         return _check(f"{label}:{path_str}", False, "file not found")
     if path.stat().st_size == 0:
         return _check(f"{label}:{path_str}", False, "file is empty")
@@ -124,22 +129,10 @@ def check_outdir(path_str: str) -> dict:
 def check_environment() -> list[dict]:
     results: list[dict] = []
     try:
-        from PIL import ImageFont
-        try:
-            ImageFont.truetype(
-                "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 32,
-                layout_engine=ImageFont.Layout.RAQM)
-            results.append(_check("pillow+raqm", True, "RAQM layout engine usable"))
-        except Exception as exc:
-            # RAQM may be unavailable while Pillow works; report precisely.
-            try:
-                ImageFont.truetype(
-                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 32)
-                results.append(_check(
-                    "pillow+raqm", False,
-                    f"Pillow OK but RAQM unavailable: {exc}"))
-            except Exception:
-                results.append(_check("pillow+raqm", False, f"Pillow font load failed: {exc}"))
+        from PIL import features
+        available = bool(features.check_feature("raqm"))
+        results.append(_check("pillow+raqm", available,
+                              "RAQM available" if available else "RAQM unavailable"))
     except ImportError:
         results.append(_check("pillow+raqm", False, "Pillow not installed"))
     try:

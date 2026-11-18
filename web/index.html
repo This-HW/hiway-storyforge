@@ -24,22 +24,27 @@
   <div id="tab-make">
     <section>
       <h2>1. 소재 등록</h2>
-      <input type="file" id="file" accept="image/*">
+      <input type="file" id="file" accept="image/jpeg,image/png">
       <input type="text" id="source" placeholder="출처 URL (필수)">
       <select id="topic"></select>
       <select id="rights">
         <option>불명확</option><option>확인됨</option><option>사용불가</option>
       </select>
       <button id="btn-register">등록</button>
-      <p class="hint">출처와 권리 상태를 모르면 등록할 수 없게 설계돼 있습니다 (검수 원칙).</p>
+      <p class="hint">출처를 입력하고 권리 상태를 선택하세요. 사용불가 소재는 제작 단계로 진행할 수 없습니다.</p>
     </section>
     <section>
       <h2>소재 목록</h2>
+      <label>상태 <select id="filter-status"></select></label>
+      <label>주제 <select id="filter-topic"></select></label>
       <div id="materials"></div>
     </section>
     <section id="workbench" hidden>
       <h2>2. 작업대 — <span id="wb-title"></span></h2>
-      <img id="wb-image" alt="소재 이미지">
+      <div id="layout-preview"><img id="wb-image" alt="소재 이미지"><span id="preview-copy"></span></div>
+      <label><input type="checkbox" id="original-ratio"> 원본 비율 유지</label>
+      <p class="hint">배치 미리보기에서 주요 피사체 위치를 누르면 문구와 겹치는지 확인할 수 있습니다. 최종 이미지는 합성 후 표시됩니다.</p>
+      <p id="overlap" role="status"></p>
       <div class="row">
         <button id="btn-analyze">분석 (핵심 사실 후보)</button>
         <span id="fact-candidates"></span>
@@ -54,7 +59,7 @@
       </div>
       <div id="copies"></div>
       <div class="row">
-        <input type="text" id="chosen" placeholder="확정 카피 (후보 클릭 또는 직접 입력)">
+        <textarea id="chosen" rows="2" aria-label="확정 카피" placeholder="확정 카피 (최대 2줄)"></textarea>
         <input type="text" id="highlight" placeholder="강조 단어 (선택)">
         <button id="btn-choose">카피 확정</button>
         <button id="btn-render">합성</button>

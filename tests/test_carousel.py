@@ -70,3 +70,23 @@ class CarouselTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCarouselApproval(unittest.TestCase):
+    def test_existing_cover_does_not_approve_an_unrendered_carousel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pipe = Pipeline({"provider": "stub"}, Path(tmp))
+            mat = pipe.register_regenerated(story_url="https://example.com/story",
+                                            prompt="scene", topic="동물", fact="친구를 기다린 코끼리")
+            hook = "다친 친구를 3주 내내 한자리에서 기다린 코끼리"
+            pipe.choose_copy(mat.id, hook)
+            pipe.render(mat.id)
+            pipe.review(mat.id, MANUAL_CHECK_ITEMS)
+            pipe.set_slides(mat.id, [{"text": hook}, {"text": "친구 태그 부탁해요"}])
+            self.assertNotEqual(pipe.review(mat.id, MANUAL_CHECK_ITEMS).status, "완성")
+            pipe.generate_slide_image(mat.id, 1)
+            pipe.render(mat.id)
+            reviewed = pipe.review(mat.id, MANUAL_CHECK_ITEMS)
+            self.assertTrue(any("2장" in f for f in reviewed.review["auto_findings"]))
+            with self.assertRaises(PermissionError):
+                pipe.enqueue(mat.id)

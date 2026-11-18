@@ -24,6 +24,7 @@ signal). The success report shape is unchanged.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from datetime import datetime
@@ -62,13 +63,14 @@ def load_queue_json(path: Path) -> tuple[object, str | None]:
         return None, f"queue file unreadable: {path}: {exc}"
 
 
-def load_animal() -> tuple[list[dict], str | None]:
-    data, err = load_queue_json(ANIMAL_QUEUE)
+def load_animal(path=ANIMAL_QUEUE) -> tuple[list[dict], str | None]:
+    data, err = load_queue_json(path)
     if err:
         return [], err
     # dict keyed by id — NOT a list; do not call .get on a list.
     if isinstance(data, dict):
-        items = data.values()
+        items = [{**v, "id": v.get("id") or k} if isinstance(v, dict) else v
+                 for k, v in data.items()]
     elif isinstance(data, list):
         items = data
     else:
@@ -76,7 +78,7 @@ def load_animal() -> tuple[list[dict], str | None]:
     out = []
     for v in items:
         if not isinstance(v, dict):
-            continue
+            return [], "animal queue contains a malformed item"
         out.append(
             {
                 "channel": "animal",
@@ -88,13 +90,13 @@ def load_animal() -> tuple[list[dict], str | None]:
     return out, None
 
 
-def load_property() -> tuple[list[dict], str | None]:
-    data, err = load_queue_json(PROPERTY_QUEUE)
+def load_property(path=PROPERTY_QUEUE) -> tuple[list[dict], str | None]:
+    data, err = load_queue_json(path)
     if err:
         return [], err
     # dict with an `items` LIST — iterate the list, do not call .get on it.
     if isinstance(data, dict):
-        raw_items = data.get("items", [])
+        raw_items = data.get("items")
     elif isinstance(data, list):
         raw_items = data
     else:
@@ -104,7 +106,7 @@ def load_property() -> tuple[list[dict], str | None]:
     out = []
     for v in raw_items:
         if not isinstance(v, dict):
-            continue
+            return [], "property queue contains a malformed item"
         out.append(
             {
                 "channel": "property",
@@ -118,9 +120,14 @@ def load_property() -> tuple[list[dict], str | None]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Report confirmed posts due for dispatch")
+    parser.add_argument("--animal-queue", type=Path, default=ANIMAL_QUEUE)
+    parser.add_argument("--property-queue", type=Path, default=PROPERTY_QUEUE)
+    parser.add_argument("--json", action="store_true", help="output JSON (default)")
+    args = parser.parse_args()
     now = datetime.now(KST)
-    animal_items, animal_err = load_animal()
-    property_items, property_err = load_property()
+    animal_items, animal_err = load_animal(args.animal_queue)
+    property_items, property_err = load_property(args.property_queue)
     errors = [e for e in (animal_err, property_err) if e]
     if errors:
         print(json.dumps({
@@ -133,6 +140,10 @@ def main() -> int:
     due, waiting_past_due = [], []
     for it in items:
         sched = parse_kst(it.get("scheduled_for") or "")
+        if it["status"] == "컨펌됨" and (not sched or not it["id"]):
+            print(json.dumps({"error": "invalid_confirmed_item", "channel": it["channel"],
+                              "id": it["id"]}, ensure_ascii=False))
+            return 2
         it["scheduled_for_kst"] = sched.isoformat() if sched else None
         it["is_due"] = bool(sched and sched <= now)
         if it.get("status") == "컨펌됨" and it["is_due"]:

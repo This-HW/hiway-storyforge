@@ -48,6 +48,17 @@ config/channel.example.yaml     지식 브리프, 큐 데이터
 
 ## 채널 설정 찾는 순서
 
-1. `./channels/<name>.yaml` (현재 디렉토리)
-2. `~/workspace/channels/<name>.yaml`
-3. `$STORYFORGE_CHANNELS_DIR/<name>.yaml` (환경변수로 지정)
+1. `$STORYFORGE_CHANNELS_DIR/<name>.yaml` (환경변수가 있을 때)
+2. `./channels/<name>.yaml` (현재 디렉토리)
+3. `~/workspace/channels/<name>.yaml`
+
+운영자가 하루 분량의 채널별 예약 시각을 만들 때는 아래처럼 설정을 전달한다.
+
+```python
+from datetime import date
+from storyforge.channel import list_channels, load_channel
+from storyforge.scheduler import generate_schedule
+
+channels = {name: load_channel(name) for name in list_channels()}
+schedule = generate_schedule(channels, date.today())
+```

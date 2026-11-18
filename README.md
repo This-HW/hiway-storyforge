@@ -10,7 +10,7 @@
 ## 빠른 시작 (키 없이 데모)
 
 ```bash
-pip install -r requirements.txt   # Pillow 하나뿐
+pip install -r requirements.txt
 make demo                         # 스텁 프로바이더 + 샘플 소재로 실행
 # http://127.0.0.1:8765
 ```
@@ -24,6 +24,14 @@ cp .env.example .env              # PB_PROVIDER와 모델 키 설정 (OpenAI 호
 cp config/user.example.json config/user.json   # (선택) 개인 설정 오버라이드
 make run
 ```
+
+기본 포트가 사용 중이면 `PB_PORT=18765 make run`으로 바꿀 수 있다.
+
+### Muse 운영 환경과 게시 큐
+
+운영 환경은 Muse의 Linux VM이다. Muse 에이전트는 검수한 소재를 `POST /api/materials/{id}/enqueue`로 등록하고 프리뷰 확인 후 `POST /api/queue/{id}/confirm`으로 예약 발행을 컨펌한다. 두 요청 모두 JSON 객체를 받는다. 예약 날짜를 지정하려면 등록 요청에 `on_date`를 YYYY-MM-DD로 전달한다. `GET /api/queue`에서 파일 순서·캡션·예약 시각을 확인할 수 있다.
+
+발행 작업은 운영 환경에서 `scripts/check_due.py`로 도래한 컨펌 건을 찾고 `scripts/safe_publish.py`로 게시한다. 운영 에이전트는 `POST /api/queue/{id}/result`에 `status`, `post_url`, `post_id` 또는 실패 시 `error`를 기록한다. 스크립트의 입력과 종료 코드는 각 파일의 도움말을 참고한다. VM에서 첫 운영 전에 `python3 scripts/preflight.py`로 렌더 환경과 커넥터 설치를 점검한다. [제품 인수 기준](docs/SPEC.md#7-제품-인수-조건)
 
 ## 공개/프라이빗 경계
 
@@ -53,13 +61,14 @@ make run
 src/storyforge/   코어 (web → services → rules/render/store/providers)
 web/              웹 UI (빌드 과정 없는 정적 파일)
 docs/             SPEC / PLAYBOOK / DESIGN / AGENT_GUIDE
-tests/            unittest
+tests/            pytest (unittest 포함)
 scripts/          데모 시드 등
 ```
 
 ## 개발
 
 ```bash
+pip install -r requirements-dev.txt
 make test
 ```
 

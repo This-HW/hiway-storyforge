@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import json
 import os
+from tempfile import NamedTemporaryFile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
 _ENV_MAP = {
+    "PB_PORT": ("server", "port"),
     "PB_PROVIDER": ("provider",),
     "PB_DATA_DIR": ("data_dir",),
 }
@@ -65,3 +67,14 @@ def data_dir(cfg: dict) -> Path:
         path = ROOT / path
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def write_json(path: Path, data) -> None:
+    """Publish complete JSON so readers see either version during a save."""
+    tmp = NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False)
+    try:
+        with tmp:
+            json.dump(data, tmp, ensure_ascii=False, indent=1)
+        os.replace(tmp.name, path)
+    finally:
+        Path(tmp.name).unlink(missing_ok=True)

@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from PIL import Image, ImageDraw  # noqa: E402
 
-from photobonus.config import data_dir, load_config  # noqa: E402
-from photobonus.services import Pipeline  # noqa: E402
+from storyforge.config import data_dir, load_config  # noqa: E402
+from storyforge.services import Pipeline  # noqa: E402
 
 
 def make_sample_image() -> bytes:

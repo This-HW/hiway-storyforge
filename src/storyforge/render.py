@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from .korean_text import load_korean_font, validate_korean_text, wrap_korean_text
 
@@ -37,10 +37,10 @@ def _cover_crop(img: Image.Image, width: int, height: int) -> Image.Image:
     dst_ratio = width / height
     if src_ratio > dst_ratio:
         new_h = img.height
-        new_w = int(new_h * dst_ratio)
+        new_w = max(1, int(new_h * dst_ratio))
     else:
         new_w = img.width
-        new_h = int(new_w / dst_ratio)
+        new_h = max(1, int(new_w / dst_ratio))
     left = (img.width - new_w) // 2
     top = (img.height - new_h) // 2
     return img.crop((left, top, left + new_w, top + new_h)).resize((width, height))
@@ -48,7 +48,7 @@ def _cover_crop(img: Image.Image, width: int, height: int) -> Image.Image:
 
 def _gradient_overlay(img: Image.Image, ratio: float = 0.45) -> Image.Image:
     width, height = img.size
-    grad_h = int(height * ratio)
+    grad_h = max(1, int(height * ratio))
     gradient = Image.new("L", (1, grad_h))
     for y in range(grad_h):
         gradient.putpixel((0, y), int(200 * (y / max(grad_h - 1, 1)) ** 1.5))
@@ -91,7 +91,7 @@ def render(image_path: str, text: str, out_path: str, *,
            highlight: str = "", width: int = 1080, height: int = 1350,
            font_path: str = "", font_size: int = 64,
            text_color: str = "#FFFFFF", accent_color: str = "#FFE600",
-           strict: bool = False) -> str:
+           strict: bool = False, original_ratio: bool = False) -> str:
     """Composite caption text onto an image (4:5 JPEG).
 
     With a real font file, the font is loaded with the RAQM layout engine
@@ -100,7 +100,11 @@ def render(image_path: str, text: str, out_path: str, *,
     instead of rendering anyway; the default keeps the old lenient
     behaviour for callers that validate separately.
     """
-    img = Image.open(image_path).convert("RGB")
+    with Image.open(image_path) as source:
+        img = ImageOps.exif_transpose(source).convert("RGB")
+    if original_ratio:
+        scale = min(width / img.width, height / img.height)
+        width, height = max(1, round(img.width * scale)), max(1, round(img.height * scale))
     img = _cover_crop(img, width, height)
     img = _gradient_overlay(img)
     draw = ImageDraw.Draw(img)

@@ -30,8 +30,7 @@ def build_package(material: Material, data_dir: Path) -> dict:
             shutil.copy(src, pkg_dir / name)
             files.append(name)
     caption = (
-        f"{material.chosen_copy}\n\n"
-        f"(캡션 초안 — 사실 보충 1~2줄을 직접 채워 넣으세요)\n"
+        f"{material.fact}\n\n"
         f"#{material.topic.replace('·', '')} #사진이야기\n")
     (pkg_dir / "caption.txt").write_text(caption, encoding="utf-8")
     files.append("caption.txt")
@@ -39,6 +38,9 @@ def build_package(material: Material, data_dir: Path) -> dict:
         "id": material.id, "topic": material.topic, "source": material.source,
         "rights": material.rights, "fact": material.fact,
         "chosen_copy": material.chosen_copy, "renders": material.renders,
+        "post_files": ([f"slide_{i + 1}.jpg" for i in range(len(material.slide_renders))]
+                       if material.slides else ["image_ko.jpg"]),
+        "regen_prompt": material.regen_prompt,
     }
     (pkg_dir / "meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")

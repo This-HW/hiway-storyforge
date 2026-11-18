@@ -4,12 +4,14 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import re
+from threading import Lock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from .config import ROOT, data_dir, load_config
-from .models import TOPICS
+from .config import ROOT, data_dir, load_config, write_json
+from .models import LANGUAGES, TOPICS
 from .rules import MANUAL_CHECK_ITEMS
 from .services import Pipeline
 
@@ -17,6 +19,7 @@ CFG = load_config()
 DATA = data_dir(CFG)
 PIPE = Pipeline(CFG, DATA)
 WEB_DIR = ROOT / "web"
+WRITE_LOCK = Lock()
 
 
 def _json(handler, obj, status=200):
@@ -35,9 +38,14 @@ class Handler(BaseHTTPRequestHandler):
     # -- helpers ------------------------------------------------------------
     def _body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
+        if not 0 <= length <= 32 * 1024 * 1024:
+            raise ValueError("요청 크기 제한은 32 MiB입니다")
         if not length:
             return {}
-        return json.loads(self.rfile.read(length).decode("utf-8"))
+        body = json.loads(self.rfile.read(length).decode("utf-8"))
+        if not isinstance(body, dict):
+            raise ValueError("JSON 객체가 필요합니다")
+        return body
 
     def _serve_file(self, path: Path, content_type: str | None = None):
         if not path.exists() or not path.is_file():
@@ -59,7 +67,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/" or path == "/index.html":
             self._serve_file(WEB_DIR / "index.html", "text/html; charset=utf-8")
         elif path.startswith("/static/"):
-            self._serve_file(WEB_DIR / path[len("/static/"):])
+            target = (WEB_DIR / path[len("/static/"):]).resolve()
+            if WEB_DIR.resolve() not in target.parents:
+                self.send_error(403)
+                return
+            self._serve_file(target)
         elif path == "/api/materials":
             _json(self, [m.to_dict() for m in PIPE.store.list()])
         elif path == "/api/meta":
@@ -78,7 +90,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/analytics":
             _json(self, PIPE.analytics())
         elif path == "/api/settings":
-            safe = {k: v for k, v in CFG.items()}
+            safe = {k: CFG[k] for k in _SETTINGS_KEYS}
             _json(self, safe)
         elif path.startswith("/api/files/"):
             rel = path[len("/api/files/"):]
@@ -95,95 +107,104 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in url.path.split("/") if p]
         try:
             body = self._body()
-            if parts == ["api", "materials", "regenerate"]:
-                mat = PIPE.register_regenerated(
-                    story_url=body.get("story_url", ""),
-                    prompt=body.get("prompt", ""),
-                    topic=body.get("topic", ""),
-                    fact=body.get("fact", ""))
-                _json(self, mat.to_dict(), 201)
-                return
-            if parts == ["api", "candidates"]:
-                cand = PIPE.add_candidate(
-                    topic=body.get("topic", ""), url=body.get("url", ""),
-                    note=body.get("note", ""), origin_lang=body.get("origin_lang", ""))
-                _json(self, cand.to_dict(), 201)
-                return
-            if len(parts) == 4 and parts[:2] == ["api", "queue"] and parts[3] == "result":
-                item = PIPE.record_publish_result(
-                    parts[2], status=body.get("status", ""),
-                    post_url=body.get("post_url", ""), error=body.get("error", ""))
-                _json(self, item.to_dict())
-                return
-            if len(parts) == 4 and parts[:2] == ["api", "candidates"]:
-                cand = PIPE.set_candidate_status(parts[2], body.get("status", ""))
-                _json(self, cand.to_dict())
-                return
-            if parts == ["api", "batch"]:
-                _json(self, PIPE.batch(body.get("ids", []), body.get("action", "")))
-                return
-            if parts == ["api", "settings"]:
-                _save_user_settings(body)
-                _json(self, {"ok": True, "note": "user.json에 저장됨. "
-                         "렌더·언어 설정은 즉시 반영, 프로바이더 변경은 재시작 필요"})
-                return
-            if parts == ["api", "materials"]:
-                raw = base64.b64decode(body["data_base64"])
-                ext = Path(body.get("filename", "image.jpg")).suffix or ".jpg"
-                mat = PIPE.register(
-                    image_bytes=raw, ext=ext, source=body.get("source", ""),
-                    rights=body.get("rights", "불명확"),
-                    topic=body.get("topic", ""), origin_lang=body.get("origin_lang", ""))
-                _json(self, mat.to_dict(), 201)
-                return
-            if len(parts) == 5 and parts[:2] == ["api", "materials"] \
-                    and parts[3] == "slides":
-                _json(self, PIPE.generate_slide_image(
-                    parts[2], int(parts[4])).to_dict())
-                return
-            if len(parts) >= 3 and parts[:2] == ["api", "materials"]:
-                mid, action = parts[2], parts[3] if len(parts) > 3 else ""
-                if action == "slides":
-                    _json(self, PIPE.set_slides(
-                        mid, body.get("slides", [])).to_dict())
-                elif action == "analyze":
-                    _json(self, PIPE.analyze(mid).to_dict())
-                elif action == "fact":
-                    _json(self, PIPE.set_fact(mid, body.get("fact", ""),
-                                              body.get("visible_info")).to_dict())
-                elif action == "copies":
-                    _json(self, PIPE.generate_copies(
-                        mid, humor=bool(body.get("humor"))).to_dict())
-                elif action == "choose":
-                    _json(self, PIPE.choose_copy(
-                        mid, body.get("text", ""), body.get("highlight", "")).to_dict())
-                elif action == "render":
-                    _json(self, PIPE.render(mid).to_dict())
-                elif action == "localize":
-                    _json(self, PIPE.localize(mid, body.get("lang", "en")).to_dict())
-                elif action == "localize_all":
-                    _json(self, PIPE.localize_all(mid).to_dict())
-                elif action == "review":
-                    _json(self, PIPE.review(
-                        mid, body.get("manual_checks", [])).to_dict())
-                elif action == "export":
-                    _json(self, PIPE.export(mid))
-                elif action == "enqueue":
-                    _json(self, PIPE.enqueue(mid).to_dict(), 201)
-                elif action == "views":
-                    _json(self, PIPE.record_views(
-                        mid, int(body.get("views", 0)),
-                        body.get("posted_at", "")).to_dict())
-                else:
-                    self.send_error(404)
-                return
-            self.send_error(404)
+            with WRITE_LOCK:
+                self._dispatch(parts, body)
         except (ValueError, PermissionError) as exc:
             _json(self, {"error": str(exc)}, 400)
         except KeyError as exc:
             _json(self, {"error": str(exc)}, 404)
         except Exception as exc:  # surface, don't crash the server
             _json(self, {"error": f"{type(exc).__name__}: {exc}"}, 500)
+
+    def _dispatch(self, parts, body):
+        if parts == ["api", "materials", "regenerate"]:
+            mat = PIPE.register_regenerated(
+                story_url=body.get("story_url", ""),
+                prompt=body.get("prompt", ""),
+                topic=body.get("topic", ""),
+                fact=body.get("fact", ""))
+            _json(self, mat.to_dict(), 201)
+            return
+        if parts == ["api", "candidates"]:
+            cand = PIPE.add_candidate(
+                topic=body.get("topic", ""), url=body.get("url", ""),
+                note=body.get("note", ""), origin_lang=body.get("origin_lang", ""))
+            _json(self, cand.to_dict(), 201)
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "queue"] and parts[3] == "confirm":
+            _json(self, PIPE.confirm_queue_item(parts[2]).to_dict())
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "queue"] and parts[3] == "result":
+            item = PIPE.record_publish_result(
+                parts[2], status=body.get("status", ""),
+                post_url=body.get("post_url", ""), error=body.get("error", ""),
+                post_id=body.get("post_id", ""))
+            _json(self, item.to_dict())
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "candidates"]:
+            cand = PIPE.set_candidate_status(parts[2], body.get("status", ""))
+            _json(self, cand.to_dict())
+            return
+        if parts == ["api", "batch"]:
+            _json(self, PIPE.batch(body.get("ids", []), body.get("action", "")))
+            return
+        if parts == ["api", "settings"]:
+            _save_user_settings(body)
+            _json(self, {"ok": True, "note": "user.json에 저장됨. "
+                     "렌더·언어 설정은 즉시 반영, 프로바이더 변경은 재시작 필요"})
+            return
+        if parts == ["api", "materials"]:
+            raw = base64.b64decode(body.get("data_base64", ""), validate=True)
+            ext = Path(body.get("filename", "image.jpg")).suffix or ".jpg"
+            mat = PIPE.register(
+                image_bytes=raw, ext=ext, source=body.get("source", ""),
+                rights=body.get("rights", "불명확"),
+                topic=body.get("topic", ""), origin_lang=body.get("origin_lang", ""))
+            _json(self, mat.to_dict(), 201)
+            return
+        if len(parts) == 5 and parts[:2] == ["api", "materials"] \
+                and parts[3] == "slides":
+            _json(self, PIPE.generate_slide_image(
+                parts[2], int(parts[4])).to_dict())
+            return
+        if len(parts) >= 3 and parts[:2] == ["api", "materials"]:
+            mid, action = parts[2], parts[3] if len(parts) > 3 else ""
+            if action == "slides":
+                _json(self, PIPE.set_slides(
+                    mid, body.get("slides", [])).to_dict())
+            elif action == "analyze":
+                _json(self, PIPE.analyze(mid).to_dict())
+            elif action == "fact":
+                _json(self, PIPE.set_fact(mid, body.get("fact", ""),
+                                          body.get("visible_info")).to_dict())
+            elif action == "copies":
+                _json(self, PIPE.generate_copies(
+                    mid, humor=bool(body.get("humor"))).to_dict())
+            elif action == "choose":
+                _json(self, PIPE.choose_copy(
+                    mid, body.get("text", ""), body.get("highlight", ""),
+                    body.get("original_ratio")).to_dict())
+            elif action == "render":
+                _json(self, PIPE.render(mid).to_dict())
+            elif action == "localize":
+                _json(self, PIPE.localize(mid, body.get("lang", "en")).to_dict())
+            elif action == "localize_all":
+                _json(self, PIPE.localize_all(mid).to_dict())
+            elif action == "review":
+                _json(self, PIPE.review(
+                    mid, body.get("manual_checks", [])).to_dict())
+            elif action == "export":
+                _json(self, PIPE.export(mid))
+            elif action == "enqueue":
+                _json(self, PIPE.enqueue(mid, on_date=body.get("on_date")).to_dict(), 201)
+            elif action == "views":
+                _json(self, PIPE.record_views(
+                    mid, int(body.get("views", 0)),
+                    body.get("posted_at", "")).to_dict())
+            else:
+                self.send_error(404)
+            return
+        self.send_error(404)
 
 
 _SETTINGS_KEYS = ("render", "languages", "copy")
@@ -196,12 +217,30 @@ def _save_user_settings(body: dict) -> None:
     existing = {}
     if user_path.exists():
         existing = json.loads(user_path.read_text(encoding="utf-8"))
+    changes = {}
     for key in _SETTINGS_KEYS:
         if key in body:
-            existing[key] = body[key]
-            CFG[key] = body[key]
-    user_path.write_text(json.dumps(existing, ensure_ascii=False, indent=1),
-                         encoding="utf-8")
+            if not isinstance(body[key], dict):
+                raise ValueError("설정 값은 객체여야 합니다")
+            changes[key] = {**CFG[key], **body[key]}
+    langs = changes.get("languages", CFG["languages"]).get("targets")
+    if not isinstance(langs, list) or any(lang not in LANGUAGES or lang == "ko" for lang in langs):
+        raise ValueError("대상 언어가 올바르지 않습니다")
+    copy = changes.get("copy", CFG["copy"])
+    render = changes.get("render", CFG["render"])
+    for group, keys in ((copy, ("min_chars", "max_chars", "max_lines", "candidate_count")),
+                        (render, ("font_size", "height", "width"))):
+        if any(type(group[k]) is not int or group[k] < 1 for k in keys):
+            raise ValueError("크기와 개수는 양의 정수여야 합니다")
+    if copy["min_chars"] > copy["max_chars"]:
+        raise ValueError("최소 자수가 최대 자수보다 큽니다")
+    for key in ("accent_color", "text_color"):
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", render[key]):
+            raise ValueError("색상 형식은 #RRGGBB입니다")
+    for key in changes:
+        existing[key] = {**existing.get(key, {}), **body[key]}
+    write_json(user_path, existing)
+    CFG.update(changes)
 
 
 def main():
