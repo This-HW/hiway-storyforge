@@ -34,10 +34,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from storyforge import gates  # noqa: E402
 from storyforge.korean_text import (  # noqa: E402
-    load_korean_font, validate_korean_text, word_boundary_engine,
+    load_korean_font, validate_korean_text, word_boundary_engine, wrap_korean_text,
 )
 
 DEFAULT_FONT = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+DEFAULT_WRAP_WIDTH = 952  # Standard 1080-pixel slide with 64-pixel side margins.
 
 
 def _read_json(path: Path):
@@ -133,8 +134,8 @@ def _check_images(images_dir: Path, slide_count: int) -> list[dict]:
 
 
 def _check_korean_rendering(texts: list[tuple[int | None, str]], font_path: Path,
-                            findings: list[dict]) -> str | None:
-    """Run validate_korean_text with a real font; returns a skip note or None."""
+                            findings: list[dict], *, wrap_width: int) -> str | None:
+    """Check glyphs and whether the slide layout preserves the original text."""
     if not font_path.exists():
         return f"font not found, Korean rendering check skipped: {font_path}"
     try:
@@ -147,10 +148,15 @@ def _check_korean_rendering(texts: list[tuple[int | None, str]], font_path: Path
         return f"font load failed, Korean rendering check skipped: {exc}"
     draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
     for slide_no, text in texts:
-        for issue_type, detail in validate_korean_text(text or "", font, draw):
+        for issue_type, detail in validate_korean_text(text, font, draw):
             level = "error" if issue_type == "tofu" else "warning"
             findings.append({"level": level, "gate": f"korean_{issue_type}",
                              "slide": slide_no, "detail": detail})
+        if slide_no is not None:
+            lines = wrap_korean_text(text, font, wrap_width, draw)
+            if "".join("".join(lines).split()) != "".join(text.split()):
+                findings.append({"level": "error", "gate": "korean_wrap_text_changed",
+                                 "slide": slide_no, "detail": "줄바꿈 결과에서 원문 문자가 달라졌어요"})
     return None
 
 
@@ -165,8 +171,12 @@ def main() -> int:
                     help="'none' (default), 'allow', or comma-separated allowed emoji")
     ap.add_argument("--images", default="", help="rendered slides directory to verify")
     ap.add_argument("--font", default=DEFAULT_FONT, help="font for Korean rendering check")
+    ap.add_argument("--wrap-width", type=int, default=DEFAULT_WRAP_WIDTH,
+                    help="text width in pixels for the Korean slide wrapping check (default: 952)")
     ap.add_argument("--no-font-check", action="store_true", help="skip Korean rendering check")
     args = ap.parse_args()
+    if args.wrap_width < 1:
+        ap.error("--wrap-width must be positive")
 
     story, err = _read_json(Path(args.story))
     if err:
@@ -251,7 +261,8 @@ def main() -> int:
         texts = [(s["n"], s["text"]) for s in slides]
         if caption.strip():
             texts.append((None, caption))
-        note = _check_korean_rendering(texts, Path(args.font), findings)
+        note = _check_korean_rendering(texts, Path(args.font), findings,
+                                       wrap_width=args.wrap_width)
         if note:
             checks_skipped.append(note)
         else:

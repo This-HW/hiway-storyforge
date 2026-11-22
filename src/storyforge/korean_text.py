@@ -13,6 +13,8 @@ Usage:
     lines = wrap_korean_text("긴 한국어 텍스트입니다", font, max_width=900, draw=draw)
 """
 
+import re
+
 from PIL import ImageFont, features
 
 try:
@@ -59,7 +61,11 @@ def load_korean_font(path, size, index=0):
             return ImageFont.truetype(path, size)
 
 
-def get_word_boundaries(text):
+def _space_boundaries(text: str) -> list[tuple[int, int]]:
+    return [match.span() for match in re.finditer(r"\S+", text)]
+
+
+def get_word_boundaries(text: str) -> list[tuple[int, int]]:
     """Get natural word break positions for Korean text.
 
     Uses kiwipiepy morphological analysis when available.
@@ -67,37 +73,27 @@ def get_word_boundaries(text):
     Returns list of (start, end) character indices for each word unit.
     """
     if not _HAS_KIWI:
-        # Fallback: split on spaces, keep spaces attached to previous word
-        words = []
-        start = 0
-        for i, ch in enumerate(text):
-            if ch == ' ':
-                if i > start:
-                    words.append((start, i))
-                start = i + 1
-        if start < len(text):
-            words.append((start, len(text)))
-        return words
+        return _space_boundaries(text)
 
-    tokens = _kiwi.tokenize(text)
-    words = []
-    pos = 0
-    for token in tokens:
-        form = token.form
-        # Find token position in text (skip spaces)
-        idx = text.find(form, pos)
-        if idx == -1:
+    words: list[tuple[int, int]] = []
+    end = 0
+    for token in _kiwi.tokenize(text):
+        # Kiwi normalizes inflected forms. Its offsets refer to the original
+        # string, even when multiple morphemes share a single syllable.
+        start, stop = token.start, token.start + token.len
+        if start == stop:
             continue
-        # Merge particles/endings with previous word for natural breaks
-        # Tags that attach to previous: J* (particles), E* (endings)
-        if words and (token.tag.startswith('J') or token.tag.startswith('E')):
-            prev_start, _ = words[-1]
-            words[-1] = (prev_start, idx + len(form))
+        if not 0 <= start < stop <= len(text) or text[end:start].strip():
+            return _space_boundaries(text)
+        if words and start < words[-1][0]:
+            return _space_boundaries(text)
+        if words and (start <= end or token.tag.startswith(("J", "E"))):
+            words[-1] = (words[-1][0], max(end, stop))
         else:
-            words.append((idx, idx + len(form)))
-        pos = idx + len(form)
+            words.append((start, stop))
+        end = words[-1][1]
 
-    return words
+    return _space_boundaries(text) if text[end:].strip() else words
 
 
 def wrap_korean_text(text, font, max_width, draw):
@@ -110,7 +106,7 @@ def wrap_korean_text(text, font, max_width, draw):
         draw: ImageDraw object for measuring text
 
     Returns:
-        List of lines, each fitting within max_width
+        List of lines. A single word longer than max_width may overflow.
     """
     # Respect existing manual line breaks first
     paragraphs = text.split('\n')
@@ -132,34 +128,13 @@ def wrap_korean_text(text, font, max_width, draw):
             result.append(para)
             continue
 
-        lines = []
-        current_start = boundaries[0][0]
-
-        for i, (wstart, wend) in enumerate(boundaries):
-            # Try adding this word to current line
-            test_end = wend
-            # Include trailing space if not last word
-            if i + 1 < len(boundaries):
-                next_start = boundaries[i + 1][0]
-                test_text = para[current_start:next_start].rstrip()
-            else:
-                test_text = para[current_start:test_end]
-
-            if draw.textlength(test_text, font=font) <= max_width:
-                continue
-            else:
-                # Current line is full, break before this word
-                line_text = para[current_start:wstart].rstrip()
-                if line_text:
-                    lines.append(line_text)
-                current_start = wstart
-
-        # Add remaining
-        remaining = para[current_start:].strip()
-        if remaining:
-            lines.append(remaining)
-
-        result.extend(lines)
+        line_start = 0
+        for word_start, word_end in boundaries:
+            previous = para[line_start:word_start].rstrip()
+            if previous and draw.textlength(para[line_start:word_end], font=font) > max_width:
+                result.append(previous)
+                line_start = word_start
+        result.append(para[line_start:].rstrip())
 
     return result
 
@@ -174,7 +149,6 @@ def validate_korean_text(text, font, draw):
     issues = []
 
     # Check for isolated jamo (U+3131-U+318E) that aren't part of syllables
-    import re
     jamo_pattern = re.compile(r'[\u3131-\u318E]')
     for m in jamo_pattern.finditer(text):
         # Check if surrounded by spaces or at word boundary (likely intentional)
