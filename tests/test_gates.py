@@ -16,8 +16,8 @@ def _story(**overrides):
         },
         "slides": [
             {"n": 1, "text": "비 오는 날 길에서 만난 작은 강아지 이야기",
-             "image_prompt": "small brown puppy face fills two-thirds of frame, "
-                             "looking at the camera, golden backlight, creamy bokeh, "
+             "image_prompt": "a passerby wraps a wet puppy in a towel, "
+                             "show both beneath the awning, golden backlight, creamy bokeh, "
                              "photorealistic, no text"},
             {"n": 2, "text": "강아지는 비를 맞으며 떨고 있었어요",
              "image_prompt": "puppy shivering in the rain, golden backlight, "
@@ -143,12 +143,24 @@ class TestPrompts(unittest.TestCase):
         self.assertIn("photoreal_missing", found)
         self.assertIn("no_text_missing", found)
 
-    def test_slide1_framing_missing(self):
+    def test_story_action_is_valid_without_closeup_markers(self):
+        self.assertFalse(any(f["level"] == "error" for f in gates.check_prompts(_story())))
+
+    def test_legacy_fixed_face_size_is_a_warning(self):
+        story = _story()
+        story["slides"][0]["image_prompt"] += ", face fills two-thirds of frame"
+        findings = gates.check_prompts(story)
+        self.assertEqual([f["slide"] for f in findings
+                          if f["gate"] == "slide1_legacy_face_framing"], [1])
+        self.assertFalse(any(f["level"] == "error" for f in findings))
+
+    def test_custom_framing_marker_is_still_required_when_configured(self):
         story = _story(slides=[
             {"n": 1, "text": "x",
              "image_prompt": "puppy in a garden, golden backlight, bokeh, photorealistic, no text"},
         ])
-        self.assertIn("slide1_framing", _gates_of(gates.check_prompts(story)))
+        findings = gates.check_prompts(story, framing_markers=("medium shot",))
+        self.assertIn("slide1_framing", _gates_of(findings))
 
     def test_missing_prompt_is_error(self):
         story = _story(slides=[{"n": 1, "text": "x"}])
@@ -261,8 +273,7 @@ class TestRunAll(unittest.TestCase):
 class TestPrompting(unittest.TestCase):
     TONE = {"tokens": ["golden backlight", "bokeh"],
             "photoreal": "photorealistic",
-            "no_text": "no text",
-            "framing_slide1": "face fills two-thirds of frame, looking at the camera"}
+            "no_text": "no text"}
     CONT = {"identity": "small brown puppy with floppy ears",
             "env_markers": ["old alley"],
             "props": ["red collar"],
@@ -272,10 +283,20 @@ class TestPrompting(unittest.TestCase):
         prompt = build_slide_prompt(action="puppy shivering in the rain",
                                     continuity=self.CONT, tone=self.TONE, slide_n=1)
         self.assertIn("small brown puppy", prompt)
-        self.assertIn("two-thirds", prompt)
+        self.assertIn("puppy shivering in the rain", prompt)
+        self.assertIn("key action or relationship", prompt)
+        self.assertIn("lower third for a caption", prompt)
+        self.assertNotIn("two-thirds", prompt)
         self.assertIn("golden backlight", prompt)
         self.assertIn("photorealistic", prompt)
         self.assertIn("no text", prompt)
+
+    def test_cover_can_use_framing_specific_to_its_story(self):
+        prompt = build_slide_prompt(
+            action="a hippo calf suckles from a bottle held by a carer",
+            tone={**self.TONE, "framing_slide1": "medium shot showing calf and bottle"},
+        )
+        self.assertIn("medium shot showing calf and bottle", prompt)
 
     def test_later_slide_has_no_identity_anchor_by_default(self):
         prompt = build_slide_prompt(action="puppy sleeping",
@@ -283,6 +304,7 @@ class TestPrompting(unittest.TestCase):
         self.assertNotIn("floppy ears", prompt)
         self.assertIn("old alley", prompt)
         self.assertIn("golden backlight", prompt)
+        self.assertNotIn("lower third for a caption", prompt)
 
     def test_no_duplicated_tokens(self):
         prompt = build_slide_prompt(

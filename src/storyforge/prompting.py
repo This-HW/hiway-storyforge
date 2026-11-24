@@ -20,6 +20,12 @@ Pure functions, no imports from other storyforge modules.
 """
 from __future__ import annotations
 
+_DEFAULT_COVER_FRAMING = (
+    "frame the key action or relationship so it reads at thumbnail size, "
+    "keep the main subject and relevant people, props or setting visible, "
+    "leave space in the lower third for a caption"
+)
+
 
 def _first_clause(text: str, max_chars: int = 140) -> str:
     """First clause of a continuity value (identity anchor)."""
@@ -47,7 +53,8 @@ def build_slide_prompt(*, action: str, continuity: dict | None = None,
         action: what happens in this slide (the scene-specific part).
         continuity: {"identity", "env_markers", "props", "light_palette"}.
         tone: {"tokens": [...], "photoreal": str, "no_text": str,
-               "framing_slide1": str}. Missing keys are skipped.
+               "framing_slide1": str}. The cover defaults to showing the story
+               action with room for a caption. Other missing keys are skipped.
         slide_n: 1-based slide number.
         anchor_on: "first" (identity anchor on slide 1 only), "all", or
             "none".
@@ -76,7 +83,7 @@ def build_slide_prompt(*, action: str, continuity: dict | None = None,
     _add(_join(continuity.get("light_palette", "")))
     if slide_n == 1:
         _add(_join(continuity.get("props", "")))
-        _add(str(tone.get("framing_slide1", "") or ""))
+        _add(str(tone.get("framing_slide1") or _DEFAULT_COVER_FRAMING))
     for token in tone.get("tokens", []) or []:
         _add(str(token))
     _add(str(tone.get("photoreal", "") or ""))
