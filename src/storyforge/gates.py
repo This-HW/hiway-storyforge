@@ -250,7 +250,7 @@ def check_caption(caption: str, *, channel_format: str = "animal_v2",
 # --- image prompts (tone v2 + continuity tokens) -----------------------------
 
 _LEGACY_COVER_FRAMING_RE = re.compile(
-    r"\bfaces?\s+(?:fills?|occup(?:y|ies))\s+(?:at least\s+)?"
+    r"\bfaces?\s+(?:fills?|occup(?:y|ies))\s+(?:(?:at least|more than|over)\s+)?"
     r"(?:two[- ]thirds|2\s*/\s*3)\b"
 )
 

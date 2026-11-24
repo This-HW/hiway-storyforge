@@ -147,12 +147,16 @@ class TestPrompts(unittest.TestCase):
         self.assertFalse(any(f["level"] == "error" for f in gates.check_prompts(_story())))
 
     def test_legacy_fixed_face_size_is_a_warning(self):
-        story = _story()
-        story["slides"][0]["image_prompt"] += ", face fills two-thirds of frame"
-        findings = gates.check_prompts(story)
-        self.assertEqual([f["slide"] for f in findings
-                          if f["gate"] == "slide1_legacy_face_framing"], [1])
-        self.assertFalse(any(f["level"] == "error" for f in findings))
+        for framing in ("face fills two-thirds of frame", "face fills more than two-thirds",
+                        "face occupies at least 2/3 of the frame"):
+            with self.subTest(framing=framing):
+                story = _story()
+                story["slides"][0]["image_prompt"] += f", {framing}"
+                findings = gates.check_prompts(story)
+                self.assertEqual([(f["level"], f["slide"]) for f in findings
+                                  if f["gate"] == "slide1_legacy_face_framing"],
+                                 [("warning", 1)])
+                self.assertFalse(any(f["level"] == "error" for f in findings))
 
     def test_custom_framing_marker_is_still_required_when_configured(self):
         story = _story(slides=[
