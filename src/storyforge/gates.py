@@ -249,19 +249,24 @@ def check_caption(caption: str, *, channel_format: str = "animal_v2",
 
 # --- image prompts (tone v2 + continuity tokens) -----------------------------
 
+_LEGACY_COVER_FRAMING_RE = re.compile(
+    r"\bfaces?\s+(?:fills?|occup(?:y|ies))\s+(?:at least\s+)?"
+    r"(?:two[- ]thirds|2\s*/\s*3)\b"
+)
+
+
 def check_prompts(story: dict, *,
                   tone_tokens: tuple[str, ...] = ("golden backlight", "bokeh"),
                   require_photoreal: bool = True,
                   require_no_text: bool = True,
-                  framing_markers: tuple[str, ...] = (
-                      "two-thirds", "looking at", "looking into",
-                      "close-up", "close up", "face fills")) -> list[dict]:
+                  framing_markers: tuple[str, ...] = ()) -> list[dict]:
     """Check per-slide image prompts for tone-v2 / continuity tokens.
 
     Identity itself is carried by the reference chain (scene_1 + previous
     scene), not by prompt wording, so this gate checks the checkable
-    tokens — tone, photorealism, no-text, slide-1 framing — and warns when
-    no reference-chain metadata is recorded in the story at all.
+    tokens for tone and rendering, and warns on legacy fixed face framing
+    and missing reference-chain metadata. Callers may specify required
+    framing markers for their own channel.
     """
     findings: list[dict] = []
     slides = story.get("slides") or []
@@ -304,10 +309,14 @@ def check_prompts(story: dict, *,
         if require_no_text and "no text" not in lowered:
             findings.append(_finding("error", "no_text_missing",
                                      "'no text' 토큰 누락 (이미지 내 텍스트 생성 방지)", n))
-        if n == 1 and not any(m in lowered for m in framing_markers):
-            findings.append(_finding(
-                "error", "slide1_framing",
-                "1장 프레이밍(얼굴 2/3+카메라 응시) 표현이 없다", n))
+        if n == 1:
+            if _LEGACY_COVER_FRAMING_RE.search(lowered):
+                findings.append(_finding(
+                    "warning", "slide1_legacy_face_framing",
+                    "표지의 얼굴 크기를 고정하는 문구를 확인하세요. 핵심 행동이나 관계가 보여야 해요", n))
+            if framing_markers and not any(m.lower() in lowered for m in framing_markers):
+                findings.append(_finding(
+                    "error", "slide1_framing", "채널이 지정한 표지 구도 표현이 없다", n))
     if not any_ref_meta:
         findings.append(_finding(
             "warning", "continuity_refs",
@@ -436,7 +445,8 @@ def human_checklist() -> list[dict]:
         {"gate": "§1.11 이음새", "item": "슬라이드 전환 시 '그래서?/왜 갑자기?'가 나오지 않는가 (브릿지 필요 여부)"},
         {"gate": "§1.11 풀어서 설명", "item": "축약 없이 풀어 썼는가, 어미 리듬이 자연스러운가"},
         {"gate": "§1.11 왜?에 답하기", "item": "독자가 물을 '왜 하필?'에 미리 답했는가"},
-        {"gate": "톤 v2", "item": "1장 얼굴 2/3 이상 + 카메라 응시 + 하단 큰 자막인가, 귀여움 다이얼이 실사 범위인가, 황금빛 역광+보케가 통일되는가"},
+        {"gate": "표지 구도", "item": "축소한 1장에서 주인공과 핵심 행동이나 관계가 보이고, 하단 자막이 단서를 가리지 않으며 읽히는가"},
+        {"gate": "톤 v2", "item": "실사 범위에서 표정과 자세가 자연스럽고, 조명과 색감이 이어지는가"},
         {"gate": "주어 명시", "item": "카피 문장의 주어가 생략되지 않고 명시됐는가"},
         {"gate": "한글 렌더링", "item": "합성 이미지에서 글자 깨짐·넘침·잘림이 없는가 (실제 파일로 확인)"},
     ]
